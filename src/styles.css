@@ -1,0 +1,84 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-bg-primary: #101517;
+  --color-bg-panel: #1a2124;
+  --color-border: #2a3439;
+  --color-accent: #ff7a3d;
+  --color-text-sand: #e9e4d8;
+  --color-text-muted: #a39e93;
+  --scrollbar-thumb: #2a3439;
+  --scrollbar-track: #101517;
+
+  color-scheme: only dark;
+  accent-color: var(--color-accent);
+  background-color: var(--color-bg-primary);
+  color: var(--color-text-sand);
+}
+
+html, body {
+  height: 100%;
+  margin: 0;
+  background-color: var(--color-bg-primary);
+  color: var(--color-text-sand);
+  font-family: 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, sans-serif;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scrollbar-width: thin;
+}
+
+@supports not (scrollbar-color: auto) {
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: var(--scrollbar-track);
+  }
+}
+
+dialog::backdrop {
+  background-color: rgba(16, 21, 23, 0.82);
+  backdrop-filter: blur(4px);
+}
+
+/* Leaflet Map Dark Graphite Styling */
+.leaflet-container {
+  background: #0d1214 !important;
+  font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
+}
+
+.dark-matter-tiles {
+  filter: invert(100%) hue-rotate(180deg) brightness(84%) contrast(115%) saturate(80%) !important;
+}
+
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+  background: #1a2124 !important;
+  color: #e9e4d8 !important;
+  border: 1px solid #2a3439 !important;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.7) !important;
+  border-radius: 0.5rem !important;
+}
+
+.leaflet-popup-content {
+  margin: 12px 14px !important;
+}
+
+.leaflet-control-zoom a {
+  background-color: #1a2124 !important;
+  color: #e9e4d8 !important;
+  border-color: #2a3439 !important;
+}
+
+.leaflet-control-zoom a:hover {
+  background-color: #232c30 !important;
+  color: #ff7a3d !important;
+}
