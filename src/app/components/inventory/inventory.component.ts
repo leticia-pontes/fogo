@@ -134,7 +134,7 @@ function jitter(): number {
                   </td>
                   <td class="td text-xs">{{ typeLabels[e.type] }}</td>
                   <td class="td">
-                    <p class="text-xs">{{ e.location.street }} — {{ e.location.reference }}</p>
+                    <p class="text-xs">{{ e.location.street }} – {{ e.location.reference }}</p>
                     <p class="text-xs text-fogo-muted">{{ e.location.neighborhood }} · CEP {{ e.location.cep }}</p>
                   </td>
                   <td class="td text-xs">{{ e.agency }}</td>

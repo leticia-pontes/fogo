@@ -190,7 +190,7 @@ const SELECT_CLASS =
                 <dt>Manutenção</dt>
                 <dd>{{ priorityLabels[eq.maintenance.priority] }}</dd>
                 <dt>Próxima data</dt>
-                <dd>{{ eq.maintenance.nextDate ? formatDate(eq.maintenance.nextDate) : '—' }}</dd>
+                <dd>{{ eq.maintenance.nextDate ? formatDate(eq.maintenance.nextDate) : '–' }}</dd>
               </dl>
               <div class="p-3 rounded-lg bg-fogo-bg border border-fogo-border space-y-0.5">
                 <p class="font-medium">{{ eq.location.street }}</p>
@@ -312,7 +312,7 @@ const SELECT_CLASS =
             }
           </div>
           <p class="text-[11px] text-fogo-muted">
-            Critério: indisponíveis ÷ instalados — Normal &lt; 15%, Atenção 15–30%, Crítico ≥ 30%.
+            Critério: indisponíveis ÷ instalados – Normal &lt; 15%, Atenção 15–30%, Crítico ≥ 30%.
           </p>
         </section>
 

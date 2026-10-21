@@ -22,7 +22,7 @@ export type ActiveModuleTab = 'ops' | 'inventory' | 'predictive';
               <svg lucideIcon="radar" class="w-4 h-4 text-fogo-ember"></svg>
             </div>
             <div>
-              <p class="font-semibold text-sm leading-tight">F.O.G.O. — Protocolo PROMETHEUS</p>
+              <p class="font-semibold text-sm leading-tight">F.O.G.O. – Protocolo PROMETHEUS</p>
               <p class="text-[11px] text-fogo-muted leading-tight">Ferramenta Onisciente de Gestão e Operações · {{ cityName }}</p>
             </div>
           </div>

@@ -1,4 +1,4 @@
-# F.O.G.O. — Ferramenta Onisciente de Gestão e Operações
+# F.O.G.O. – Ferramenta Onisciente de Gestão e Operações
 
 Solução para a **Etapa Bônus do DSIN Coder Challenge (Protocolo PROMETHEUS)**: SPA em **Angular 21** (standalone + Signals), **Tailwind CSS** e **Leaflet**.
 
@@ -37,13 +37,13 @@ src/app/
 
 `Equipment` é uma união discriminada: o campo `type` define o formato de `customProperties`. Exemplos: câmera → `{ nightVision, resolution, colorMode }`; radar → `{ radarSubtype, maxSpeedLimit? }`. O mesmo schema (`CUSTOM_FIELDS`) monta o formulário dinâmico e o painel de detalhes.
 
-## Parte 1 — Inventário inteligente
+## Parte 1 – Inventário inteligente
 
 - Listagem unificada de **equipamentos** e **agentes**, com busca e filtros por tipo e situação.
 - Drawer lateral para **cadastrar, editar e excluir**. Os campos específicos mudam conforme o tipo escolhido.
 - A situação pode ser alterada direto na listagem. Toda alteração atualiza o mapa, os KPIs, os alertas e as previsões.
 
-## Parte 2 — Central de Operações
+## Parte 2 – Central de Operações
 
 - **KPIs**: total de equipamentos, operacionais, indisponíveis, disponibilidade (operacionais ÷ instalados) e agentes ativos.
 - **Filtros** por tipo, situação, bairro e órgão responsável. Eles valem para o mapa, os KPIs, os alertas e a visão por região.
@@ -53,7 +53,7 @@ src/app/
 - **Visão por região**: Normal (< 15%), Atenção (15–30%) ou Crítico (≥ 30%), conforme a proporção de equipamentos indisponíveis no bairro. No mapa, cada bairro é pintado com a cor correspondente (mapa coroplético).
 - **Simular telemetria em tempo real**: a cada 3 s, um equipamento falha ou se recupera e os veículos e agentes se deslocam. O feed de eventos registra cada mudança.
 
-## Parte 3 — Cidade Preditiva
+## Parte 3 – Cidade Preditiva
 
 Cada card de previsão responde a três perguntas:
 
