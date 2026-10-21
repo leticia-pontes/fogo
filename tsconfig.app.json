@@ -8,8 +8,7 @@
     "src/main.ts"
   ],
   "include": [
-    "src/**/*.d.ts",
-    "models/**/*.ts"
+    "src/**/*.d.ts"
   ]
 }
 

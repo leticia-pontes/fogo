@@ -1,1010 +1,719 @@
-import {
-  AfterViewInit,
-  Component,
-  ElementRef,
-  EventEmitter,
-  Output,
-  PLATFORM_ID,
-  ViewChild,
-  computed,
-  inject,
-  signal,
-} from '@angular/core';
-import { CommonModule, isPlatformBrowser } from '@angular/common';
+import { Component, EventEmitter, HostListener, OnInit, Output, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { LucideDynamicIcon } from '@lucide/angular';
-import { v4 as uuidv4 } from 'uuid';
-import { DeviceInventoryService } from '../../services/device-inventory.service';
-import { StoryService } from '../../services/story.service';
+import { CITY_UF, NEIGHBORHOODS, daysFromToday } from '../../data/mock-data';
 import {
-  CameraDevice,
-  CityDevice,
-  DeviceCategory,
-  DeviceStatus,
-  FieldAgent,
-  GenericIoTDevice,
-  MaintenanceUrgency,
-  RadarDevice,
+  AGENCIES,
+  AGENT_STATUS_COLORS,
+  AGENT_STATUS_LABELS,
+  CUSTOM_FIELDS,
+  EQUIPMENT_STATUSES,
+  EQUIPMENT_TYPES,
+  PRIORITY_LABELS,
+  ROLE_AGENCY,
+  ROLE_LABELS,
+  STATUS_COLORS,
+  STATUS_LABELS,
+  TYPE_LABELS,
+  defaultCustomProperties,
+} from '../../models/equipment-schema';
+import {
+  Agent,
+  AgentRole,
+  AgentStatus,
+  Equipment,
+  EquipmentLocation,
+  EquipmentStatus,
+  EquipmentType,
+  MaintenancePriority,
 } from '../../models/fogo.models';
+import { CityStateService, daysUntil } from '../../services/city-state.service';
 
-export type StatusChipFilter =
-  | 'all'
-  | 'unverified'
-  | 'operational'
-  | 'malfunction'
-  | 'stolen'
-  | 'immediate_urgency'
-  | 'maintenance';
+type CustomValue = string | number | boolean | null;
+
+interface EquipmentDraft {
+  id: string | null;
+  type: EquipmentType;
+  serialNumber: string;
+  brand: string;
+  model: string;
+  agency: string;
+  status: EquipmentStatus;
+  priority: MaintenancePriority;
+  nextDate: string;
+  location: EquipmentLocation;
+  custom: Record<string, CustomValue>;
+}
+
+interface AgentDraft extends Omit<Agent, 'id'> {
+  id: string | null;
+}
+
+const INPUT_CLASS =
+  'w-full py-2 px-2.5 bg-fogo-bg border border-fogo-border focus:border-fogo-ember rounded-lg text-sm text-fogo-sand outline-none';
+
+function newId(prefix: string): string {
+  return `${prefix}-${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 5).toUpperCase()}`;
+}
+
+function jitter(): number {
+  return (Math.random() - 0.5) * 0.008;
+}
 
 @Component({
   selector: 'app-inventory',
   standalone: true,
-  imports: [CommonModule, FormsModule, LucideDynamicIcon],
+  imports: [FormsModule],
   template: `
-    <div class="p-4 lg:p-6 space-y-5 max-w-[1560px] mx-auto text-[#e9e4d8]">
-      <!-- Cabeçalho da Barreira 1 e Controles de Busca -->
-      <section class="bg-[#1a2124] border border-[#2a3439] rounded-xl p-5 space-y-4">
-        <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div class="space-y-1">
-            <div class="flex flex-wrap items-center gap-3 text-sm text-[#a39e93]">
-              <span>Barreira 1 — Reconhecer o que existe</span>
-              <span>•</span>
-              <span>
-                Verificados:
-                <strong class="text-[#e9e4d8]">
-                  {{ story.verifiedDeviceIds().length }} de {{ inventory.totalDevices() }} ({{ story.verifiedPercentage() }}%)
-                </strong>
-              </span>
-              @if (!story.barrierOneCleared()) {
-                <span class="text-[#ff7a3d] font-medium">Meta da barreira: 60%</span>
-              } @else {
-                <span class="text-[#4ca975] font-medium">✓ Meta de 60% atingida</span>
-              }
-            </div>
-            <h1 class="text-xl font-semibold text-[#e9e4d8]">
-              Inventário de equipamentos e agentes de campo
-            </h1>
-          </div>
-
-          <div class="flex flex-wrap items-center gap-2.5">
-            <!-- Alternador Equipamentos / Agentes -->
-            <div class="inline-flex rounded-lg bg-[#101517] p-1 border border-[#2a3439]" role="tablist">
-              <button
-                type="button"
-                role="tab"
-                [attr.aria-selected]="activeEntityTab() === 'devices'"
-                (click)="activeEntityTab.set('devices')"
-                [class]="activeEntityTab() === 'devices'
-                  ? 'px-3.5 py-1.5 text-sm font-medium rounded-md bg-[#1a2124] text-[#e9e4d8] border border-[#2a3439]'
-                  : 'px-3.5 py-1.5 text-sm text-[#a39e93] hover:text-[#e9e4d8]'"
-              >
-                Equipamentos ({{ inventory.totalDevices() }})
-              </button>
-              <button
-                type="button"
-                role="tab"
-                [attr.aria-selected]="activeEntityTab() === 'agents'"
-                (click)="activeEntityTab.set('agents')"
-                [class]="activeEntityTab() === 'agents'
-                  ? 'px-3.5 py-1.5 text-sm font-medium rounded-md bg-[#1a2124] text-[#e9e4d8] border border-[#2a3439]'
-                  : 'px-3.5 py-1.5 text-sm text-[#a39e93] hover:text-[#e9e4d8]'"
-              >
-                Agentes em campo ({{ inventory.agents().length }})
-              </button>
-            </div>
-
-            <button
-              type="button"
-              (click)="openRegistrationModal()"
-              class="px-4 py-2 rounded-lg bg-[#ff7a3d] hover:bg-[#ff8b55] text-[#101517] font-semibold text-sm flex items-center gap-2 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#ff7a3d]"
-            >
-              <svg lucideIcon="plus-circle" class="w-4 h-4"></svg>
-              Cadastrar equipamento
+    <div class="p-4 lg:p-5 space-y-4 max-w-[1600px] mx-auto">
+      <section class="bg-fogo-panel border border-fogo-border rounded-xl p-4 space-y-3">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div class="inline-flex rounded-lg bg-fogo-bg p-1 border border-fogo-border" role="tablist">
+            <button type="button" role="tab" [attr.aria-selected]="tab() === 'equipment'" (click)="tab.set('equipment')" [class]="tabClass(tab() === 'equipment')">
+              Equipamentos ({{ city.equipment().length }})
+            </button>
+            <button type="button" role="tab" [attr.aria-selected]="tab() === 'agents'" (click)="tab.set('agents')" [class]="tabClass(tab() === 'agents')">
+              Agentes ({{ city.agents().length }})
             </button>
           </div>
-        </div>
-
-        <!-- Barra de progresso da Barreira 1 -->
-        <div class="w-full h-2 bg-[#101517] rounded-full overflow-hidden" aria-hidden="true">
-          <div
-            class="h-full transition-all duration-300"
-            [style.width.%]="story.verifiedPercentage()"
-            [class]="story.barrierOneCleared() ? 'bg-[#4ca975]' : 'bg-[#ff7a3d]'"
-          ></div>
-        </div>
-
-        <!-- Busca e Seletores -->
-        <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
-          <div class="md:col-span-7 relative">
-            <svg
-              lucideIcon="search"
-              class="w-4 h-4 text-[#a39e93] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"
-            ></svg>
-            <input
-              type="text"
-              [ngModel]="searchQuery()"
-              (ngModelChange)="searchQuery.set($event)"
-              placeholder="Buscar por número de série, rua, bairro, fabricante ou modelo..."
-              aria-label="Buscar equipamentos ou agentes"
-              class="w-full pl-10 pr-16 py-2.5 bg-[#101517] border border-[#2a3439] focus:border-[#ff7a3d] rounded-lg text-sm text-[#e9e4d8] placeholder-[#78756e] outline-none"
-            />
-            @if (searchQuery()) {
-              <button
-                type="button"
-                (click)="searchQuery.set('')"
-                class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[#a39e93] hover:text-[#e9e4d8]"
-              >
-                Limpar
-              </button>
+          <div class="flex flex-wrap gap-2">
+            <button type="button" (click)="resetData()" class="btn-ghost">Restaurar dados de exemplo</button>
+            @if (tab() === 'equipment') {
+              <button type="button" (click)="openEquipment(null)" class="btn-primary">+ Novo equipamento</button>
+            } @else {
+              <button type="button" (click)="openAgent(null)" class="btn-primary">+ Novo agente</button>
             }
           </div>
-
-          <div class="md:col-span-3">
-            <select
-              [ngModel]="selectedCategory()"
-              (ngModelChange)="selectedCategory.set($event)"
-              aria-label="Filtrar por categoria de equipamento"
-              class="w-full py-2.5 px-3 bg-[#101517] border border-[#2a3439] focus:border-[#ff7a3d] rounded-lg text-sm text-[#e9e4d8] outline-none"
-            >
-              <option value="all">Todas as categorias (9 tipos)</option>
-              <option value="radar">Radar de fiscalização</option>
-              <option value="camera">Câmera de monitoramento</option>
-              <option value="truck_scale">Balança de pesagem dinâmica</option>
-              <option value="autonomous_patrol">Patrulha autônoma</option>
-              <option value="automated_barrier">Cancela automatizada</option>
-              <option value="transit_vehicle">Veículo de transporte / BRT</option>
-              <option value="parking_totem">Totem de estacionamento</option>
-              <option value="shared_micromobility">Micromobilidade compartilhada</option>
-              <option value="police_vehicle">Viatura operacional</option>
-            </select>
-          </div>
-
-          <div class="md:col-span-2">
-            <select
-              [ngModel]="selectedNeighborhood()"
-              (ngModelChange)="selectedNeighborhood.set($event)"
-              aria-label="Filtrar por bairro"
-              class="w-full py-2.5 px-3 bg-[#101517] border border-[#2a3439] focus:border-[#ff7a3d] rounded-lg text-sm text-[#e9e4d8] outline-none"
-            >
-              <option value="all">Todos os bairros</option>
-              @for (neighborhood of neighborhoodsList(); track neighborhood) {
-                <option [value]="neighborhood">{{ neighborhood }}</option>
-              }
-            </select>
-          </div>
         </div>
 
-        <!-- Filtros rápidos por chips com símbolos acessíveis (sem depender só de cor) -->
-        <div class="flex flex-wrap items-center gap-2 pt-1">
-          <span class="text-xs text-[#a39e93] mr-1">Filtrar por estado:</span>
-
-          <button
-            type="button"
-            (click)="activeStatusChip.set('all')"
-            [class]="activeStatusChip() === 'all'
-              ? 'px-3 py-1 rounded-full text-xs font-semibold bg-[#ff7a3d] text-[#101517]'
-              : 'px-3 py-1 rounded-full text-xs bg-[#101517] text-[#a39e93] border border-[#2a3439] hover:text-[#e9e4d8]'"
-          >
-            Todos ({{ inventory.totalDevices() }})
-          </button>
-
-          <button
-            type="button"
-            (click)="activeStatusChip.set('unverified')"
-            [class]="activeStatusChip() === 'unverified'
-              ? 'px-3 py-1 rounded-full text-xs font-semibold bg-[#6c767a]/30 text-[#e9e4d8] border border-[#e9e4d8]'
-              : 'px-3 py-1 rounded-full text-xs bg-[#101517] text-[#a39e93] border border-[#2a3439] hover:text-[#e9e4d8]'"
-          >
-            ◌ Sem verificação ({{ countByChip('unverified') }})
-          </button>
-
-          <button
-            type="button"
-            (click)="activeStatusChip.set('operational')"
-            [class]="activeStatusChip() === 'operational'
-              ? 'px-3 py-1 rounded-full text-xs font-semibold bg-[#4ca975]/25 text-[#75d49e] border border-[#4ca975]'
-              : 'px-3 py-1 rounded-full text-xs bg-[#101517] text-[#a39e93] border border-[#2a3439] hover:text-[#e9e4d8]'"
-          >
-            ● Operacional ({{ countByChip('operational') }})
-          </button>
-
-          <button
-            type="button"
-            (click)="activeStatusChip.set('malfunction')"
-            [class]="activeStatusChip() === 'malfunction'
-              ? 'px-3 py-1 rounded-full text-xs font-semibold bg-[#d9534f]/25 text-[#f28b88] border border-[#d9534f]'
-              : 'px-3 py-1 rounded-full text-xs bg-[#101517] text-[#a39e93] border border-[#2a3439] hover:text-[#e9e4d8]'"
-          >
-            ▲ Mau funcionamento ({{ countByChip('malfunction') }})
-          </button>
-
-          <button
-            type="button"
-            (click)="activeStatusChip.set('stolen')"
-            [class]="activeStatusChip() === 'stolen'
-              ? 'px-3 py-1 rounded-full text-xs font-semibold bg-[#8c6bb1]/30 text-[#cdb5e8] border border-[#8c6bb1]'
-              : 'px-3 py-1 rounded-full text-xs bg-[#101517] text-[#a39e93] border border-[#2a3439] hover:text-[#e9e4d8]'"
-          >
-            ◆ Furtado ({{ countByChip('stolen') }})
-          </button>
-
-          <button
-            type="button"
-            (click)="activeStatusChip.set('immediate_urgency')"
-            [class]="activeStatusChip() === 'immediate_urgency'
-              ? 'px-3 py-1 rounded-full text-xs font-semibold bg-[#d99b38]/25 text-[#f0c271] border border-[#d99b38]'
-              : 'px-3 py-1 rounded-full text-xs bg-[#101517] text-[#a39e93] border border-[#2a3439] hover:text-[#e9e4d8]'"
-          >
-            ! Urgência imediata ({{ countByChip('immediate_urgency') }})
-          </button>
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+          <input
+            type="search"
+            [class]="inputClass + ' md:col-span-2'"
+            placeholder="Buscar por série, marca, modelo, rua, referência, bairro, nome ou matrícula…"
+            aria-label="Buscar"
+            [ngModel]="search()"
+            (ngModelChange)="search.set($event)"
+          />
+          @if (tab() === 'equipment') {
+            <select #typeSel [class]="inputClass" aria-label="Filtrar por tipo" (change)="typeFilter.set($any(typeSel.value))">
+              <option value="all">Todos os tipos</option>
+              @for (t of types; track t) {
+                <option [value]="t">{{ typeLabels[t] }}</option>
+              }
+            </select>
+            <select #statusSel [class]="inputClass" aria-label="Filtrar por situação" (change)="statusFilter.set($any(statusSel.value))">
+              <option value="all">Todas as situações</option>
+              @for (s of statuses; track s) {
+                <option [value]="s">{{ statusLabels[s] }}</option>
+              }
+            </select>
+          }
         </div>
       </section>
 
-      <!-- ABA 1: LISTA DE EQUIPAMENTOS -->
-      @if (activeEntityTab() === 'devices') {
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          @for (device of filteredDevices(); track device.id) {
-            @let verified = story.isDeviceVerified(device.id);
-            <article
-              class="bg-[#1a2124] border rounded-xl p-5 flex flex-col justify-between transition-colors"
-              [class]="!verified
-                ? 'border-[#2a3439] opacity-90'
-                : device.status === 'stolen'
-                  ? 'border-[#8c6bb1]'
-                  : device.status === 'malfunction' || device.maintenance.urgency === 'immediate'
-                    ? 'border-[#d9534f]/80'
-                    : 'border-[#2a3439]'"
-            >
-              <div>
-                <div class="flex items-start justify-between gap-3 mb-3">
-                  <div>
-                    <div class="flex flex-wrap items-center gap-2">
-                      <span class="font-semibold text-base text-[#e9e4d8]">
-                        {{ device.serialNumber }}
-                      </span>
-                      <span class="text-xs px-2 py-0.5 rounded bg-[#101517] text-[#a39e93] border border-[#2a3439]">
-                        {{ getCategoryLabel(device.category) }}
-                      </span>
-                    </div>
-                    <p class="text-sm text-[#a39e93] mt-0.5">
-                      {{ device.brand }} · {{ device.model }}
-                    </p>
-                  </div>
-
-                  <!-- Rótulo de status com ícone textual (não depende só de cor) -->
-                  @if (!verified) {
-                    <span class="px-2.5 py-1 text-xs font-medium rounded bg-[#101517] text-[#a39e93] border border-[#6c767a]/60">
-                      ◌ Sem verificação
-                    </span>
-                  } @else {
-                    <span
-                      class="px-2.5 py-1 text-xs font-semibold rounded border"
-                      [class]="getStatusBadgeClass(device.status)"
-                    >
-                      {{ getStatusLabelWithSymbol(device.status) }}
-                    </span>
-                  }
-                </div>
-
-                <!-- Endereço e Referência -->
-                <div class="p-3 rounded-lg bg-[#101517] border border-[#2a3439] text-sm space-y-1 mb-3">
-                  <div class="flex items-center justify-between text-[#e9e4d8]">
-                    <span class="font-medium">{{ device.location.street }}</span>
-                    <span class="text-xs text-[#a39e93]">CEP {{ device.location.cep }}</span>
-                  </div>
-                  <div class="text-xs text-[#a39e93]">
-                    {{ device.location.neighborhood }} · Ref.: {{ device.location.reference }}
-                  </div>
-                </div>
-
-                <!-- Especificações técnicas discriminadas por tipo -->
-                <div class="mb-3">
-                  @if (device.category === 'radar') {
-                    <div class="flex flex-wrap gap-3 text-xs text-[#a39e93]">
-                      <span>Limite: <strong class="text-[#e9e4d8]">{{ device.specs.speedLimitKmH }} km/h</strong></span>
-                      <span>•</span>
-                      <span>Faixas: <strong class="text-[#e9e4d8]">{{ device.specs.monitoredLanes }}</strong></span>
-                      <span>•</span>
-                      <span>Fiscalização: <strong class="text-[#e9e4d8]">{{ device.specs.enforcementType }}</strong></span>
-                    </div>
-                  } @else if (device.category === 'camera') {
-                    <div class="flex flex-wrap gap-3 text-xs text-[#a39e93]">
-                      <span>Resolução: <strong class="text-[#e9e4d8]">{{ device.specs.resolution }}</strong></span>
-                      <span>•</span>
-                      <span>Visão noturna: <strong class="text-[#e9e4d8]">{{ device.specs.nightVision ? 'Sim' : 'Não' }}</strong></span>
-                      <span>•</span>
-                      <span>Protocolo: <strong class="text-[#e9e4d8]">{{ device.specs.streamType }}</strong></span>
-                      <span>•</span>
-                      <span>PTZ: <strong class="text-[#e9e4d8]">{{ device.specs.ptz ? 'Móvel' : 'Fixa' }}</strong></span>
-                    </div>
-                  } @else {
-                    <div class="flex flex-wrap gap-3 text-xs text-[#a39e93]">
-                      @for (entry of getGenericSpecEntries(device); track entry.key) {
-                        <span>{{ entry.key }}: <strong class="text-[#e9e4d8]">{{ entry.value }}</strong></span>
-                      }
-                    </div>
-                  }
-                </div>
-              </div>
-
-              <!-- Rodapé de Manutenção e Ações Diretas -->
-              <div class="pt-3 border-t border-[#2a3439] space-y-2.5">
-                @if (verified && device.maintenance.issueDescription) {
-                  <p class="text-xs text-[#f28b88] bg-[#d9534f]/10 border border-[#d9534f]/30 rounded px-2.5 py-1.5">
-                    Diagnóstico: {{ device.maintenance.issueDescription }}
-                  </p>
-                }
-
-                <div class="flex flex-wrap items-center justify-between gap-2">
-                  @if (!verified) {
-                    <button
-                      type="button"
-                      (click)="verifyEquipment(device)"
-                      class="px-4 py-2 rounded-lg bg-[#ff7a3d] hover:bg-[#ff8b55] text-[#101517] font-semibold text-xs transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#ff7a3d]"
-                    >
-                      Confirmar equipamento e setor
-                    </button>
-                  } @else {
-                    <span class="text-xs text-[#4ca975] font-medium">
-                      ✓ Equipamento verificado ({{ getUrgencyLabel(device.maintenance.urgency) }})
-                    </span>
-                  }
-
-                  <div class="flex items-center gap-2">
-                    @if (verified && device.status !== 'operational') {
-                      <button
-                        type="button"
-                        (click)="normalizeDevice(device)"
-                        class="px-3 py-1.5 rounded-lg bg-[#4ca975]/20 hover:bg-[#4ca975]/30 text-[#75d49e] border border-[#4ca975]/50 text-xs font-medium cursor-pointer"
+      @if (tab() === 'equipment') {
+        <div class="bg-fogo-panel border border-fogo-border rounded-xl overflow-x-auto">
+          <table class="w-full text-sm min-w-[960px]">
+            <thead class="text-xs text-fogo-muted text-left border-b border-fogo-border">
+              <tr>
+                <th class="th">Equipamento</th>
+                <th class="th">Tipo</th>
+                <th class="th">Localização</th>
+                <th class="th">Órgão</th>
+                <th class="th">Situação</th>
+                <th class="th">Manutenção</th>
+                <th class="th text-right">Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (e of filteredEquipment(); track e.id) {
+                <tr class="border-b border-fogo-border/60 hover:bg-fogo-bg/50">
+                  <td class="td">
+                    <p class="font-medium">{{ e.serialNumber }}</p>
+                    <p class="text-xs text-fogo-muted">{{ e.brand }} · {{ e.model }}</p>
+                  </td>
+                  <td class="td text-xs">{{ typeLabels[e.type] }}</td>
+                  <td class="td">
+                    <p class="text-xs">{{ e.location.street }} — {{ e.location.reference }}</p>
+                    <p class="text-xs text-fogo-muted">{{ e.location.neighborhood }} · CEP {{ e.location.cep }}</p>
+                  </td>
+                  <td class="td text-xs">{{ e.agency }}</td>
+                  <td class="td">
+                    <div class="flex items-center gap-2">
+                      <i class="w-2.5 h-2.5 rounded-full shrink-0" [style.background]="statusColors[e.status]"></i>
+                      <select
+                        #rowStatus
+                        class="bg-fogo-bg border border-fogo-border rounded px-1.5 py-1 text-xs"
+                        [attr.aria-label]="'Situação de ' + e.serialNumber"
+                        (change)="city.setEquipmentStatus(e.id, $any(rowStatus.value))"
                       >
-                        Normalizar
-                      </button>
+                        @for (s of statuses; track s) {
+                          <option [value]="s" [selected]="e.status === s">{{ statusLabels[s] }}</option>
+                        }
+                      </select>
+                    </div>
+                  </td>
+                  <td class="td text-xs">
+                    <p [class]="e.maintenance.priority === 'immediate' ? 'text-fogo-red font-medium' : ''">
+                      {{ priorityLabels[e.maintenance.priority] }}
+                    </p>
+                    @if (e.maintenance.nextDate) {
+                      <p [class]="isOverdue(e.maintenance.nextDate) ? 'text-fogo-red' : 'text-fogo-muted'">
+                        {{ formatDate(e.maintenance.nextDate) }}
+                      </p>
                     }
-
-                    <button
-                      type="button"
-                      (click)="inspectOnMap(device)"
-                      class="px-3 py-1.5 rounded-lg bg-[#101517] hover:bg-[#232c30] text-[#e9e4d8] border border-[#2a3439] text-xs flex items-center gap-1.5 cursor-pointer"
-                    >
-                      <svg lucideIcon="map-pin" class="w-3.5 h-3.5 text-[#ff7a3d]"></svg>
-                      Ver no mapa
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </article>
-          } @empty {
-            <div class="col-span-full bg-[#1a2124] border border-[#2a3439] rounded-xl p-10 text-center">
-              <p class="text-sm text-[#e9e4d8]">
-                Nenhum equipamento encontrado. Ajuste a busca ou os filtros.
-              </p>
-            </div>
-          }
+                  </td>
+                  <td class="td">
+                    <div class="flex justify-end gap-1.5">
+                      <button type="button" class="btn-row" (click)="showOnMap('equipment', e.id)">Mapa</button>
+                      <button type="button" class="btn-row" (click)="openEquipment(e)">Editar</button>
+                      <button type="button" class="btn-row hover:!border-fogo-red" (click)="removeEquipment(e)">Excluir</button>
+                    </div>
+                  </td>
+                </tr>
+              } @empty {
+                <tr><td colspan="7" class="td text-center text-fogo-muted py-10">Nenhum equipamento encontrado.</td></tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      } @else {
+        <div class="bg-fogo-panel border border-fogo-border rounded-xl overflow-x-auto">
+          <table class="w-full text-sm min-w-[820px]">
+            <thead class="text-xs text-fogo-muted text-left border-b border-fogo-border">
+              <tr>
+                <th class="th">Agente</th>
+                <th class="th">Função</th>
+                <th class="th">Órgão</th>
+                <th class="th">Bairro</th>
+                <th class="th">Status</th>
+                <th class="th text-right">Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (a of filteredAgents(); track a.id) {
+                <tr class="border-b border-fogo-border/60 hover:bg-fogo-bg/50">
+                  <td class="td">
+                    <p class="font-medium">{{ a.name }}</p>
+                    <p class="text-xs text-fogo-muted">Matrícula {{ a.badgeNumber }}</p>
+                  </td>
+                  <td class="td text-xs">{{ roleLabels[a.role] }}</td>
+                  <td class="td text-xs">{{ a.agency }}</td>
+                  <td class="td text-xs">{{ a.neighborhood }}</td>
+                  <td class="td">
+                    <div class="flex items-center gap-2">
+                      <i class="w-2.5 h-2.5 rounded-sm shrink-0" [style.background]="agentStatusColors[a.status]"></i>
+                      <select
+                        #agStatus
+                        class="bg-fogo-bg border border-fogo-border rounded px-1.5 py-1 text-xs"
+                        [attr.aria-label]="'Status de ' + a.name"
+                        (change)="city.upsertAgent({ ...a, status: $any(agStatus.value) })"
+                      >
+                        @for (s of agentStatuses; track s) {
+                          <option [value]="s" [selected]="a.status === s">{{ agentStatusLabels[s] }}</option>
+                        }
+                      </select>
+                    </div>
+                  </td>
+                  <td class="td">
+                    <div class="flex justify-end gap-1.5">
+                      <button type="button" class="btn-row" (click)="showOnMap('agent', a.id)">Mapa</button>
+                      <button type="button" class="btn-row" (click)="openAgent(a)">Editar</button>
+                      <button type="button" class="btn-row hover:!border-fogo-red" (click)="removeAgent(a)">Excluir</button>
+                    </div>
+                  </td>
+                </tr>
+              } @empty {
+                <tr><td colspan="6" class="td text-center text-fogo-muted py-10">Nenhum agente encontrado.</td></tr>
+              }
+            </tbody>
+          </table>
         </div>
       }
-
-      <!-- ABA 2: AGENTES EM CAMPO -->
-      @if (activeEntityTab() === 'agents') {
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          @for (agent of filteredAgents(); track agent.id) {
-            <article class="bg-[#1a2124] border border-[#2a3439] rounded-xl p-4 space-y-3">
-              <div class="flex items-start justify-between">
-                <div>
-                  <span class="text-xs text-[#a39e93]">{{ agent.badgeNumber }} · {{ agent.battalion }}</span>
-                  <h3 class="text-base font-semibold text-[#e9e4d8] mt-0.5">{{ agent.name }}</h3>
-                </div>
-                <span class="px-2.5 py-0.5 text-xs rounded bg-[#101517] text-[#e9e4d8] border border-[#2a3439]">
-                  {{ getAgentStatusLabel(agent.status) }}
-                </span>
-              </div>
-
-              <div class="flex items-center justify-between text-xs text-[#a39e93] pt-2 border-t border-[#2a3439]">
-                <span>{{ getAgentRoleLabel(agent.role) }} ({{ agent.mobilityType }})</span>
-                <button
-                  type="button"
-                  (click)="inspectAgentOnMap(agent)"
-                  class="text-[#ff7a3d] hover:underline flex items-center gap-1 cursor-pointer"
-                >
-                  <svg lucideIcon="locate-fixed" class="w-3.5 h-3.5"></svg>
-                  Localizar no mapa
-                </button>
-              </div>
-            </article>
-          }
-        </div>
-      }
-
-      <!-- Modal de Cadastro Dinâmico (<dialog closedby="any">) -->
-      <dialog
-        #deviceDialog
-        closedby="any"
-        aria-labelledby="dialogTitle"
-        class="w-full max-w-2xl rounded-xl bg-[#1a2124] text-[#e9e4d8] border border-[#2a3439] shadow-2xl p-0 overflow-hidden"
-      >
-        <div class="p-5 border-b border-[#2a3439] bg-[#101517] flex items-center justify-between">
-          <h2 id="dialogTitle" class="text-lg font-semibold text-[#e9e4d8]">
-            Cadastrar novo equipamento
-          </h2>
-          <button
-            type="button"
-            (click)="closeRegistrationModal()"
-            class="p-1.5 rounded-lg bg-[#1a2124] border border-[#2a3439] text-[#a39e93] hover:text-[#e9e4d8] cursor-pointer"
-            aria-label="Fechar janela"
-          >
-            <svg lucideIcon="x" class="w-4 h-4"></svg>
-          </button>
-        </div>
-
-        <form (ngSubmit)="submitNewDevice()" class="p-5 space-y-4 max-h-[80vh] overflow-y-auto text-sm">
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label class="block text-[#e9e4d8] mb-1 font-medium">Categoria do equipamento</label>
-              <select
-                name="formCategory"
-                [ngModel]="formCategory()"
-                (ngModelChange)="formCategory.set($event)"
-                class="w-full p-2.5 rounded-lg bg-[#101517] border border-[#2a3439] text-[#e9e4d8]"
-              >
-                <option value="radar">Radar de fiscalização</option>
-                <option value="camera">Câmera de monitoramento</option>
-                <option value="truck_scale">Balança dinâmica de caminhão</option>
-                <option value="autonomous_patrol">Veículo autônomo de patrulha</option>
-                <option value="automated_barrier">Cancela automatizada</option>
-                <option value="transit_vehicle">Veículo de transporte / BRT</option>
-                <option value="parking_totem">Totem de estacionamento</option>
-                <option value="shared_micromobility">Estação de micromobilidade</option>
-                <option value="police_vehicle">Viatura policial</option>
-              </select>
-            </div>
-
-            <div>
-              <label class="block text-[#e9e4d8] mb-1 font-medium">Estado operacional inicial</label>
-              <select
-                name="formStatus"
-                [ngModel]="formStatus()"
-                (ngModelChange)="formStatus.set($event)"
-                class="w-full p-2.5 rounded-lg bg-[#101517] border border-[#2a3439] text-[#e9e4d8]"
-              >
-                <option value="operational">Operacional</option>
-                <option value="not_installed">Ainda não instalado</option>
-                <option value="maintenance">Em manutenção</option>
-                <option value="malfunction">Mau funcionamento</option>
-                <option value="disabled">Desativado</option>
-                <option value="stolen">Furtado</option>
-              </select>
-            </div>
-          </div>
-
-          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
-              <label class="block text-[#a39e93] mb-1">Número de série</label>
-              <input
-                type="text"
-                name="formSerial"
-                [(ngModel)]="formSerial"
-                required
-                class="w-full p-2 rounded-lg bg-[#101517] border border-[#2a3439] text-[#e9e4d8]"
-              />
-            </div>
-            <div>
-              <label class="block text-[#a39e93] mb-1">Fabricante</label>
-              <input
-                type="text"
-                name="formBrand"
-                [(ngModel)]="formBrand"
-                required
-                class="w-full p-2 rounded-lg bg-[#101517] border border-[#2a3439] text-[#e9e4d8]"
-              />
-            </div>
-            <div>
-              <label class="block text-[#a39e93] mb-1">Modelo</label>
-              <input
-                type="text"
-                name="formModel"
-                [(ngModel)]="formModel"
-                required
-                class="w-full p-2 rounded-lg bg-[#101517] border border-[#2a3439] text-[#e9e4d8]"
-              />
-            </div>
-          </div>
-
-          <div class="p-4 rounded-lg bg-[#101517] border border-[#2a3439] space-y-3">
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div class="sm:col-span-2">
-                <label class="block text-[#a39e93] mb-1">Rua / Logradouro</label>
-                <input
-                  type="text"
-                  name="formStreet"
-                  [(ngModel)]="formStreet"
-                  required
-                  class="w-full p-2 rounded bg-[#1a2124] border border-[#2a3439] text-[#e9e4d8]"
-                />
-              </div>
-              <div>
-                <label class="block text-[#a39e93] mb-1">CEP</label>
-                <input
-                  type="text"
-                  name="formCep"
-                  [(ngModel)]="formCep"
-                  required
-                  class="w-full p-2 rounded bg-[#1a2124] border border-[#2a3439] text-[#e9e4d8]"
-                />
-              </div>
-            </div>
-
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label class="block text-[#a39e93] mb-1">Bairro / Região</label>
-                <select
-                  name="formNeighborhood"
-                  [(ngModel)]="formNeighborhood"
-                  class="w-full p-2 rounded bg-[#1a2124] border border-[#2a3439] text-[#e9e4d8]"
-                >
-                  @for (neighborhood of neighborhoodsList(); track neighborhood) {
-                    <option [value]="neighborhood">{{ neighborhood }}</option>
-                  }
-                </select>
-              </div>
-              <div>
-                <label class="block text-[#a39e93] mb-1">Ponto de referência</label>
-                <input
-                  type="text"
-                  name="formReference"
-                  [(ngModel)]="formReference"
-                  required
-                  class="w-full p-2 rounded bg-[#1a2124] border border-[#2a3439] text-[#e9e4d8]"
-                />
-              </div>
-            </div>
-          </div>
-
-          <!-- Campos específicos conforme a categoria selecionada -->
-          <div class="p-4 rounded-lg bg-[#101517] border border-[#ff7a3d]/40 space-y-3">
-            <div class="font-medium text-[#e9e4d8]">
-              Parâmetros específicos — {{ getCategoryLabel(formCategory()) }}
-            </div>
-
-            @if (formCategory() === 'radar') {
-              <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <label class="block text-[#a39e93] mb-1">Velocidade limite (km/h)</label>
-                  <input
-                    type="number"
-                    name="radarSpeedLimit"
-                    [(ngModel)]="radarSpeedLimit"
-                    class="w-full p-2 rounded bg-[#1a2124] border border-[#2a3439] text-[#e9e4d8]"
-                  />
-                </div>
-                <div>
-                  <label class="block text-[#a39e93] mb-1">Faixas monitoradas</label>
-                  <input
-                    type="number"
-                    name="radarLanes"
-                    [(ngModel)]="radarLanes"
-                    class="w-full p-2 rounded bg-[#1a2124] border border-[#2a3439] text-[#e9e4d8]"
-                  />
-                </div>
-                <div>
-                  <label class="block text-[#a39e93] mb-1">Tipo de fiscalização</label>
-                  <select
-                    name="radarEnforcement"
-                    [(ngModel)]="radarEnforcement"
-                    class="w-full p-2 rounded bg-[#1a2124] border border-[#2a3439] text-[#e9e4d8]"
-                  >
-                    <option value="speed">Velocidade</option>
-                    <option value="red_light">Avanço de semáforo</option>
-                    <option value="turn">Conversão proibida</option>
-                  </select>
-                </div>
-              </div>
-            } @else if (formCategory() === 'camera') {
-              <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div>
-                  <label class="block text-[#a39e93] mb-1">Resolução</label>
-                  <select
-                    name="cameraResolution"
-                    [(ngModel)]="cameraResolution"
-                    class="w-full p-2 rounded bg-[#1a2124] border border-[#2a3439] text-[#e9e4d8]"
-                  >
-                    <option value="4k">4K</option>
-                    <option value="1080p">1080p</option>
-                  </select>
-                </div>
-                <div>
-                  <label class="block text-[#a39e93] mb-1">Stream</label>
-                  <select
-                    name="cameraStream"
-                    [(ngModel)]="cameraStream"
-                    class="w-full p-2 rounded bg-[#1a2124] border border-[#2a3439] text-[#e9e4d8]"
-                  >
-                    <option value="rtsp">RTSP</option>
-                    <option value="hls">HLS</option>
-                  </select>
-                </div>
-                <label class="flex items-center gap-2 pt-5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    name="cameraNightVision"
-                    [(ngModel)]="cameraNightVision"
-                    class="w-4 h-4"
-                  />
-                  <span>Visão noturna</span>
-                </label>
-                <label class="flex items-center gap-2 pt-5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    name="cameraPtz"
-                    [(ngModel)]="cameraPtz"
-                    class="w-4 h-4"
-                  />
-                  <span>Domo PTZ</span>
-                </label>
-              </div>
-            } @else {
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label class="block text-[#a39e93] mb-1">Parâmetro operacional</label>
-                  <input
-                    type="text"
-                    name="genericSpecKey"
-                    [(ngModel)]="genericSpecKey"
-                    class="w-full p-2 rounded bg-[#1a2124] border border-[#2a3439] text-[#e9e4d8]"
-                  />
-                </div>
-                <div>
-                  <label class="block text-[#a39e93] mb-1">Valor de referência</label>
-                  <input
-                    type="text"
-                    name="genericSpecValue"
-                    [(ngModel)]="genericSpecValue"
-                    class="w-full p-2 rounded bg-[#1a2124] border border-[#2a3439] text-[#e9e4d8]"
-                  />
-                </div>
-              </div>
-            }
-          </div>
-
-          <div class="flex items-center justify-end gap-3 pt-2 border-t border-[#2a3439]">
-            <button
-              type="button"
-              (click)="closeRegistrationModal()"
-              class="px-4 py-2 rounded-lg bg-[#101517] border border-[#2a3439] text-[#a39e93] hover:text-[#e9e4d8] cursor-pointer"
-            >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              class="px-5 py-2 rounded-lg bg-[#ff7a3d] hover:bg-[#ff8b55] text-[#101517] font-semibold cursor-pointer"
-            >
-              Salvar equipamento
-            </button>
-          </div>
-        </form>
-      </dialog>
     </div>
+
+    <!-- Drawer de cadastro / edição -->
+    @if (equipmentDraft || agentDraft) {
+      <div class="fixed inset-0 z-[1200] flex justify-end">
+        <div class="absolute inset-0 bg-fogo-bg/70 backdrop-blur-sm" (click)="closeDrawer()" aria-hidden="true"></div>
+        <aside
+          class="relative w-full max-w-xl h-full bg-fogo-panel border-l border-fogo-border shadow-2xl flex flex-col"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="drawer-title"
+        >
+          @if (equipmentDraft; as d) {
+            <form #f="ngForm" (ngSubmit)="saveEquipment()" class="flex flex-col h-full">
+              <header class="p-4 border-b border-fogo-border flex items-center justify-between">
+                <h2 id="drawer-title" class="text-base font-semibold">{{ d.id ? 'Editar equipamento' : 'Novo equipamento' }}</h2>
+                <button type="button" (click)="closeDrawer()" class="text-fogo-muted hover:text-fogo-sand cursor-pointer" aria-label="Fechar">✕</button>
+              </header>
+
+              <div class="flex-1 overflow-y-auto p-4 space-y-4">
+                <fieldset class="grid grid-cols-2 gap-3">
+                  <label class="field col-span-2">
+                    <span>Tipo de equipamento</span>
+                    <select name="type" [class]="inputClass" [ngModel]="d.type" (ngModelChange)="changeType($event)">
+                      @for (t of types; track t) {
+                        <option [ngValue]="t">{{ typeLabels[t] }}</option>
+                      }
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>Número de série *</span>
+                    <input name="serialNumber" [class]="inputClass" [(ngModel)]="d.serialNumber" required />
+                    @if (serialConflict()) {
+                      <small class="text-fogo-red">Já existe um equipamento com esta série.</small>
+                    }
+                  </label>
+                  <label class="field">
+                    <span>Órgão responsável</span>
+                    <select name="agency" [class]="inputClass" [(ngModel)]="d.agency">
+                      @for (a of agencies; track a) {
+                        <option [ngValue]="a">{{ a }}</option>
+                      }
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>Marca *</span>
+                    <input name="brand" [class]="inputClass" [(ngModel)]="d.brand" required />
+                  </label>
+                  <label class="field">
+                    <span>Modelo *</span>
+                    <input name="model" [class]="inputClass" [(ngModel)]="d.model" required />
+                  </label>
+                </fieldset>
+
+                <fieldset class="p-3 rounded-lg border border-fogo-ember/40 bg-fogo-bg/40 grid grid-cols-2 gap-3">
+                  <legend class="px-1 text-xs font-semibold text-fogo-ember">Propriedades de {{ typeLabels[d.type] }}</legend>
+                  @for (field of customFields(d.type); track field.key) {
+                    @if (field.kind === 'boolean') {
+                      <label class="flex items-center gap-2 text-sm pt-5">
+                        <input type="checkbox" [name]="'cp_' + field.key" [(ngModel)]="d.custom[field.key]" class="w-4 h-4 accent-fogo-ember" />
+                        {{ field.label }}
+                      </label>
+                    } @else if (field.kind === 'select') {
+                      <label class="field">
+                        <span>{{ field.label }}</span>
+                        <select [name]="'cp_' + field.key" [class]="inputClass" [(ngModel)]="d.custom[field.key]" required>
+                          @for (o of field.options; track o.value) {
+                            <option [ngValue]="o.value">{{ o.label }}</option>
+                          }
+                        </select>
+                      </label>
+                    } @else if (field.kind === 'number') {
+                      <label class="field">
+                        <span>{{ field.label }}{{ field.optional ? '' : ' *' }}</span>
+                        <input type="number" [name]="'cp_' + field.key" [class]="inputClass" [(ngModel)]="d.custom[field.key]" [required]="!field.optional" />
+                      </label>
+                    } @else {
+                      <label class="field">
+                        <span>{{ field.label }} *</span>
+                        <input [name]="'cp_' + field.key" [class]="inputClass" [(ngModel)]="d.custom[field.key]" required />
+                      </label>
+                    }
+                  }
+                </fieldset>
+
+                <fieldset class="grid grid-cols-2 gap-3">
+                  <legend class="text-xs font-semibold text-fogo-muted mb-1">Localização</legend>
+                  <label class="field col-span-2">
+                    <span>Logradouro / rua *</span>
+                    <input name="street" [class]="inputClass" [(ngModel)]="d.location.street" required />
+                  </label>
+                  <label class="field col-span-2">
+                    <span>Ponto de referência *</span>
+                    <input name="reference" [class]="inputClass" [(ngModel)]="d.location.reference" placeholder="Ex.: Oposto ao nº 181, KM 203" required />
+                  </label>
+                  <label class="field">
+                    <span>Bairro</span>
+                    <select name="neighborhood" [class]="inputClass" [ngModel]="d.location.neighborhood" (ngModelChange)="changeEquipmentNeighborhood($event)">
+                      @for (n of neighborhoods; track n.name) {
+                        <option [ngValue]="n.name">{{ n.name }}</option>
+                      }
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>CEP *</span>
+                    <input name="cep" [class]="inputClass" [(ngModel)]="d.location.cep" required pattern="\\d{5}-?\\d{3}" placeholder="00000-000" />
+                  </label>
+                  <label class="field col-span-2">
+                    <span>Cidade / UF</span>
+                    <input name="cityUf" [class]="inputClass" [(ngModel)]="d.location.cityUf" required />
+                  </label>
+                  <label class="field">
+                    <span>Latitude *</span>
+                    <input type="number" step="0.0001" name="lat" [class]="inputClass" [(ngModel)]="d.location.lat" required />
+                  </label>
+                  <label class="field">
+                    <span>Longitude *</span>
+                    <input type="number" step="0.0001" name="lng" [class]="inputClass" [(ngModel)]="d.location.lng" required />
+                  </label>
+                </fieldset>
+
+                <fieldset class="grid grid-cols-2 gap-3">
+                  <legend class="text-xs font-semibold text-fogo-muted mb-1">Situação e manutenção</legend>
+                  <label class="field col-span-2">
+                    <span>Situação</span>
+                    <select name="status" [class]="inputClass" [(ngModel)]="d.status">
+                      @for (s of statuses; track s) {
+                        <option [ngValue]="s">{{ statusLabels[s] }}</option>
+                      }
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>Necessidade de manutenção</span>
+                    <select name="priority" [class]="inputClass" [(ngModel)]="d.priority">
+                      @for (p of priorities; track p) {
+                        <option [ngValue]="p">{{ priorityLabels[p] }}</option>
+                      }
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>Próxima manutenção</span>
+                    <input type="date" name="nextDate" [class]="inputClass" [(ngModel)]="d.nextDate" />
+                  </label>
+                </fieldset>
+              </div>
+
+              <footer class="p-4 border-t border-fogo-border flex justify-end gap-2">
+                <button type="button" (click)="closeDrawer()" class="btn-ghost">Cancelar</button>
+                <button type="submit" class="btn-primary disabled:opacity-40 disabled:cursor-not-allowed" [disabled]="f.invalid || serialConflict()">Salvar</button>
+              </footer>
+            </form>
+          } @else if (agentDraft; as a) {
+            <form #g="ngForm" (ngSubmit)="saveAgent()" class="flex flex-col h-full">
+              <header class="p-4 border-b border-fogo-border flex items-center justify-between">
+                <h2 id="drawer-title" class="text-base font-semibold">{{ a.id ? 'Editar agente' : 'Novo agente' }}</h2>
+                <button type="button" (click)="closeDrawer()" class="text-fogo-muted hover:text-fogo-sand cursor-pointer" aria-label="Fechar">✕</button>
+              </header>
+              <div class="flex-1 overflow-y-auto p-4 grid grid-cols-2 gap-3 content-start">
+                <label class="field col-span-2">
+                  <span>Nome *</span>
+                  <input name="name" [class]="inputClass" [(ngModel)]="a.name" required />
+                </label>
+                <label class="field">
+                  <span>Matrícula *</span>
+                  <input name="badgeNumber" [class]="inputClass" [(ngModel)]="a.badgeNumber" required />
+                </label>
+                <label class="field">
+                  <span>Função</span>
+                  <select name="role" [class]="inputClass" [ngModel]="a.role" (ngModelChange)="changeRole($event)">
+                    @for (r of roles; track r) {
+                      <option [ngValue]="r">{{ roleLabels[r] }}</option>
+                    }
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Órgão</span>
+                  <select name="agentAgency" [class]="inputClass" [(ngModel)]="a.agency">
+                    @for (ag of agencies; track ag) {
+                      <option [ngValue]="ag">{{ ag }}</option>
+                    }
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Status</span>
+                  <select name="agentStatus" [class]="inputClass" [(ngModel)]="a.status">
+                    @for (s of agentStatuses; track s) {
+                      <option [ngValue]="s">{{ agentStatusLabels[s] }}</option>
+                    }
+                  </select>
+                </label>
+                <label class="field col-span-2">
+                  <span>Bairro de atuação</span>
+                  <select name="agentNeighborhood" [class]="inputClass" [ngModel]="a.neighborhood" (ngModelChange)="changeAgentNeighborhood($event)">
+                    @for (n of neighborhoods; track n.name) {
+                      <option [ngValue]="n.name">{{ n.name }}</option>
+                    }
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Latitude *</span>
+                  <input type="number" step="0.0001" name="agentLat" [class]="inputClass" [(ngModel)]="a.lat" required />
+                </label>
+                <label class="field">
+                  <span>Longitude *</span>
+                  <input type="number" step="0.0001" name="agentLng" [class]="inputClass" [(ngModel)]="a.lng" required />
+                </label>
+              </div>
+              <footer class="p-4 border-t border-fogo-border flex justify-end gap-2">
+                <button type="button" (click)="closeDrawer()" class="btn-ghost">Cancelar</button>
+                <button type="submit" class="btn-primary disabled:opacity-40 disabled:cursor-not-allowed" [disabled]="g.invalid">Salvar</button>
+              </footer>
+            </form>
+          }
+        </aside>
+      </div>
+    }
+  `,
+  styles: `
+    .th { @apply px-3 py-2.5 font-medium; }
+    .td { @apply px-3 py-2.5 align-top; }
+    .field { @apply flex flex-col gap-1 text-xs text-fogo-muted; }
+    .btn-primary { @apply px-4 py-2 rounded-lg bg-fogo-ember hover:brightness-110 text-fogo-bg font-semibold text-sm cursor-pointer; }
+    .btn-ghost { @apply px-3 py-2 rounded-lg bg-fogo-bg border border-fogo-border text-sm text-fogo-muted hover:text-fogo-sand cursor-pointer; }
+    .btn-row { @apply px-2 py-1 rounded border border-fogo-border bg-fogo-bg text-xs hover:border-fogo-ember cursor-pointer; }
   `,
 })
-export class InventoryComponent implements AfterViewInit {
-  @ViewChild('deviceDialog', { static: true }) deviceDialog!: ElementRef<HTMLDialogElement>;
+export class InventoryComponent implements OnInit {
   @Output() navigateToMap = new EventEmitter<void>();
 
-  readonly inventory = inject(DeviceInventoryService);
-  readonly story = inject(StoryService);
-  private readonly platformId = inject(PLATFORM_ID);
+  readonly city = inject(CityStateService);
 
-  readonly activeEntityTab = signal<'devices' | 'agents'>('devices');
-  readonly searchQuery = signal<string>('');
-  readonly selectedCategory = signal<DeviceCategory | 'all'>('all');
-  readonly selectedNeighborhood = signal<string>('all');
-  readonly activeStatusChip = signal<StatusChipFilter>('all');
+  readonly inputClass = INPUT_CLASS;
+  readonly types = EQUIPMENT_TYPES;
+  readonly statuses = EQUIPMENT_STATUSES;
+  readonly priorities: MaintenancePriority[] = ['none', 'scheduled', 'immediate'];
+  readonly roles: AgentRole[] = ['transit_agent', 'municipal_guard', 'military_police'];
+  readonly agentStatuses: AgentStatus[] = ['active', 'in_dispatch', 'off_duty'];
+  readonly neighborhoods = NEIGHBORHOODS;
+  readonly agencies = AGENCIES;
+  readonly typeLabels = TYPE_LABELS;
+  readonly statusLabels = STATUS_LABELS;
+  readonly statusColors = STATUS_COLORS;
+  readonly priorityLabels = PRIORITY_LABELS;
+  readonly roleLabels = ROLE_LABELS;
+  readonly agentStatusLabels = AGENT_STATUS_LABELS;
+  readonly agentStatusColors = AGENT_STATUS_COLORS;
 
-  readonly formCategory = signal<DeviceCategory>('radar');
-  readonly formStatus = signal<DeviceStatus>('operational');
-  formSerial = 'RAD-510-0099';
-  formBrand = 'Sensys Gatso';
-  formModel = 'T-Series RT4 Doppler';
-  formStreet = 'Av. Boa Viagem';
-  formCep = '51020-000';
-  formNeighborhood = 'Zona Sul - Boa Viagem';
-  formReference = 'Em frente ao Nº 181';
-  formLat = -8.1184;
-  formLng = -34.9008;
+  readonly tab = signal<'equipment' | 'agents'>('equipment');
+  readonly search = signal('');
+  readonly typeFilter = signal<EquipmentType | 'all'>('all');
+  readonly statusFilter = signal<EquipmentStatus | 'all'>('all');
 
-  radarSpeedLimit = 60;
-  radarLanes = 3;
-  radarEnforcement: 'speed' | 'red_light' | 'turn' = 'speed';
+  equipmentDraft: EquipmentDraft | null = null;
+  agentDraft: AgentDraft | null = null;
 
-  cameraResolution: '1080p' | '4k' = '4k';
-  cameraStream: 'rtsp' | 'hls' = 'rtsp';
-  cameraNightVision = true;
-  cameraPtz = true;
-
-  genericSpecKey = 'connectivityStatus';
-  genericSpecValue = '5G Operacional';
-
-  readonly neighborhoodsList = computed(() => {
-    const unique = new Set(this.inventory.devices().map((d) => d.location.neighborhood));
-    return Array.from(unique);
-  });
-
-  readonly filteredDevices = computed(() => {
-    const query = this.searchQuery().trim().toLowerCase();
-    const category = this.selectedCategory();
-    const neighborhood = this.selectedNeighborhood();
-    const chip = this.activeStatusChip();
-
-    return this.inventory.devices().filter((device) => {
-      if (category !== 'all' && device.category !== category) return false;
-      if (neighborhood !== 'all' && device.location.neighborhood !== neighborhood) return false;
-
-      if (chip === 'unverified' && this.story.isDeviceVerified(device.id)) return false;
-      if (chip === 'operational' && device.status !== 'operational') return false;
-      if (chip === 'malfunction' && device.status !== 'malfunction') return false;
-      if (chip === 'stolen' && device.status !== 'stolen') return false;
-      if (chip === 'maintenance' && device.status !== 'maintenance') return false;
-      if (chip === 'immediate_urgency' && device.maintenance.urgency !== 'immediate') return false;
-
-      if (!query) return true;
-
-      return (
-        device.serialNumber.toLowerCase().includes(query) ||
-        device.location.street.toLowerCase().includes(query) ||
-        device.location.neighborhood.toLowerCase().includes(query) ||
-        device.model.toLowerCase().includes(query) ||
-        device.brand.toLowerCase().includes(query) ||
-        device.location.reference.toLowerCase().includes(query)
-      );
-    });
+  readonly filteredEquipment = computed(() => {
+    const q = this.search().trim().toLowerCase();
+    const type = this.typeFilter();
+    const status = this.statusFilter();
+    return this.city.equipment().filter(
+      (e) =>
+        (type === 'all' || e.type === type) &&
+        (status === 'all' || e.status === status) &&
+        (!q ||
+          [e.serialNumber, e.brand, e.model, e.location.street, e.location.reference, e.location.neighborhood, e.agency]
+            .join(' ')
+            .toLowerCase()
+            .includes(q))
+    );
   });
 
   readonly filteredAgents = computed(() => {
-    const query = this.searchQuery().trim().toLowerCase();
-    if (!query) return this.inventory.agents();
-    return this.inventory.agents().filter(
-      (ag) =>
-        ag.name.toLowerCase().includes(query) ||
-        ag.badgeNumber.toLowerCase().includes(query) ||
-        ag.battalion.toLowerCase().includes(query)
-    );
+    const q = this.search().trim().toLowerCase();
+    return this.city
+      .agents()
+      .filter((a) => !q || [a.name, a.badgeNumber, a.agency, a.neighborhood].join(' ').toLowerCase().includes(q));
   });
 
-  ngAfterViewInit(): void {
-    if (!isPlatformBrowser(this.platformId)) return;
-
-    const dialog = this.deviceDialog?.nativeElement;
-    if (!dialog) return;
-
-    if (!('closedBy' in HTMLDialogElement.prototype)) {
-      dialog.addEventListener('click', (event: MouseEvent) => {
-        if (event.target !== dialog) return;
-        const rect = dialog.getBoundingClientRect();
-        const isDialogContent =
-          rect.top <= event.clientY &&
-          event.clientY <= rect.top + rect.height &&
-          rect.left <= event.clientX &&
-          event.clientX <= rect.left + rect.width;
-        if (isDialogContent) return;
-        dialog.close();
-      });
-    }
-  }
-
-  verifyEquipment(device: CityDevice): void {
-    this.story.verifyDeviceCluster(device.id);
-  }
-
-  normalizeDevice(device: CityDevice): void {
-    this.inventory.updateDeviceStatus(
-      device.id,
-      'operational',
-      'none',
-      'Normalizado e verificado pelo operador.'
-    );
-    this.story.verifyDeviceCluster(device.id);
-    this.story.recordAlertAction('normalize', device.serialNumber);
-  }
-
-  countByChip(chip: StatusChipFilter): number {
-    const all = this.inventory.devices();
-    switch (chip) {
-      case 'unverified':
-        return all.filter((d) => !this.story.isDeviceVerified(d.id)).length;
-      case 'operational':
-        return all.filter((d) => d.status === 'operational').length;
-      case 'malfunction':
-        return all.filter((d) => d.status === 'malfunction').length;
-      case 'stolen':
-        return all.filter((d) => d.status === 'stolen').length;
-      case 'immediate_urgency':
-        return all.filter((d) => d.maintenance.urgency === 'immediate').length;
-      case 'maintenance':
-        return all.filter((d) => d.status === 'maintenance').length;
-      default:
-        return all.length;
-    }
-  }
-
-  openRegistrationModal(): void {
-    const dialog = this.deviceDialog?.nativeElement;
-    if (dialog && !dialog.open) {
-      dialog.showModal();
-    }
-  }
-
-  closeRegistrationModal(): void {
-    const dialog = this.deviceDialog?.nativeElement;
-    if (dialog && dialog.open) {
-      dialog.close();
-    }
-  }
-
-  submitNewDevice(): void {
-    const category = this.formCategory();
-    const status = this.formStatus();
-    const urgency: MaintenanceUrgency =
-      status === 'malfunction' || status === 'stolen' ? 'immediate' : 'none';
-    const shortUuid = uuidv4().split('-')[0].toUpperCase();
-
-    const base = {
-      id: `DEV-${shortUuid}`,
-      serialNumber: this.formSerial.trim() || `IOT-${shortUuid}`,
-      brand: this.formBrand.trim() || 'Nexus Systems',
-      model: this.formModel.trim() || 'Sentinel v4',
-      location: {
-        cep: this.formCep,
-        street: this.formStreet,
-        neighborhood: this.formNeighborhood,
-        city: 'Recife',
-        state: 'PE',
-        reference: this.formReference,
-        lat: Number(this.formLat),
-        lng: Number(this.formLng),
-      },
-      status,
-      maintenance: {
-        urgency,
-        lastServiceDate: 'Recém-cadastrado',
-        nextScheduledDate: '2026-12-01',
-      },
-    };
-
-    let createdDevice: CityDevice;
-
-    if (category === 'radar') {
-      const radar: RadarDevice = {
-        ...base,
-        category: 'radar',
-        specs: {
-          speedLimitKmH: Number(this.radarSpeedLimit),
-          monitoredLanes: Number(this.radarLanes),
-          enforcementType: this.radarEnforcement,
-        },
-      };
-      createdDevice = radar;
-    } else if (category === 'camera') {
-      const camera: CameraDevice = {
-        ...base,
-        category: 'camera',
-        specs: {
-          resolution: this.cameraResolution,
-          nightVision: this.cameraNightVision,
-          streamType: this.cameraStream,
-          ptz: this.cameraPtz,
-        },
-      };
-      createdDevice = camera;
+  ngOnInit(): void {
+    const request = this.city.editRequest();
+    if (!request) return;
+    this.city.editRequest.set(null);
+    if (request.kind === 'equipment') {
+      const item = this.city.equipment().find((e) => e.id === request.id);
+      if (item) this.openEquipment(item);
     } else {
-      const generic: GenericIoTDevice = {
-        ...base,
-        category,
-        specs: {
-          [this.genericSpecKey]: this.genericSpecValue,
-          homologatedByPrometheus: true,
-        },
+      this.tab.set('agents');
+      const agent = this.city.agents().find((a) => a.id === request.id);
+      if (agent) this.openAgent(agent);
+    }
+  }
+
+  @HostListener('document:keydown.escape')
+  closeDrawer(): void {
+    this.equipmentDraft = null;
+    this.agentDraft = null;
+  }
+
+  tabClass(active: boolean): string {
+    return active
+      ? 'px-3.5 py-1.5 text-sm font-medium rounded-md bg-fogo-panel text-fogo-sand border border-fogo-border cursor-pointer'
+      : 'px-3.5 py-1.5 text-sm text-fogo-muted hover:text-fogo-sand cursor-pointer';
+  }
+
+  customFields(type: EquipmentType) {
+    return CUSTOM_FIELDS[type];
+  }
+
+  // ---------------------------------------------------------------------------
+  // Equipamentos
+  // ---------------------------------------------------------------------------
+
+  openEquipment(item: Equipment | null): void {
+    if (item) {
+      this.equipmentDraft = {
+        id: item.id,
+        type: item.type,
+        serialNumber: item.serialNumber,
+        brand: item.brand,
+        model: item.model,
+        agency: item.agency,
+        status: item.status,
+        priority: item.maintenance.priority,
+        nextDate: item.maintenance.nextDate ?? '',
+        location: { ...item.location },
+        custom: { ...(item.customProperties as Record<string, CustomValue>) },
       };
-      createdDevice = generic;
+      return;
     }
-
-    this.inventory.addDevice(createdDevice);
-    this.story.verifyDeviceCluster(createdDevice.id);
-    this.closeRegistrationModal();
+    const hood = NEIGHBORHOODS[0];
+    this.equipmentDraft = {
+      id: null,
+      type: 'radar',
+      serialNumber: '',
+      brand: '',
+      model: '',
+      agency: 'SEMOB',
+      status: 'not_installed',
+      priority: 'scheduled',
+      nextDate: daysFromToday(7),
+      location: {
+        cep: `${hood.cepPrefix}-000`,
+        neighborhood: hood.name,
+        cityUf: CITY_UF,
+        street: '',
+        reference: '',
+        lat: Number((hood.lat + jitter()).toFixed(6)),
+        lng: Number((hood.lng + jitter()).toFixed(6)),
+      },
+      custom: { ...(defaultCustomProperties('radar') as Record<string, CustomValue>) },
+    };
   }
 
-  inspectOnMap(device: CityDevice): void {
-    this.story.verifyDeviceCluster(device.id);
-    this.inventory.focusOnDevice(device.id, 16);
+  changeType(type: EquipmentType): void {
+    if (!this.equipmentDraft) return;
+    this.equipmentDraft.type = type;
+    this.equipmentDraft.custom = { ...(defaultCustomProperties(type) as Record<string, CustomValue>) };
+  }
+
+  changeEquipmentNeighborhood(name: string): void {
+    const d = this.equipmentDraft;
+    const hood = NEIGHBORHOODS.find((n) => n.name === name);
+    if (!d || !hood) return;
+    d.location = {
+      ...d.location,
+      neighborhood: name,
+      cep: `${hood.cepPrefix}-000`,
+      lat: Number((hood.lat + jitter()).toFixed(6)),
+      lng: Number((hood.lng + jitter()).toFixed(6)),
+    };
+  }
+
+  serialConflict(): boolean {
+    const d = this.equipmentDraft;
+    if (!d) return false;
+    const serial = d.serialNumber.trim().toLowerCase();
+    return !!serial && this.city.equipment().some((e) => e.id !== d.id && e.serialNumber.toLowerCase() === serial);
+  }
+
+  saveEquipment(): void {
+    const d = this.equipmentDraft;
+    if (!d || this.serialConflict()) return;
+
+    const customProperties: Record<string, string | number | boolean> = {};
+    for (const field of CUSTOM_FIELDS[d.type]) {
+      const value = d.custom[field.key];
+      if (value === null || value === undefined || value === '') continue;
+      customProperties[field.key] = field.kind === 'number' ? Number(value) : value;
+    }
+
+    // O schema garante que as chaves correspondem ao `type` selecionado.
+    const item = {
+      id: d.id ?? newId('EQ'),
+      serialNumber: d.serialNumber.trim(),
+      brand: d.brand.trim(),
+      model: d.model.trim(),
+      agency: d.agency,
+      type: d.type,
+      customProperties,
+      location: { ...d.location, lat: Number(d.location.lat), lng: Number(d.location.lng) },
+      status: d.status,
+      maintenance: { priority: d.priority, nextDate: d.nextDate || undefined },
+    } as Equipment;
+
+    this.city.upsertEquipment(item);
+    this.closeDrawer();
+  }
+
+  removeEquipment(item: Equipment): void {
+    if (confirm(`Excluir o equipamento ${item.serialNumber}?`)) this.city.deleteEquipment(item.id);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Agentes
+  // ---------------------------------------------------------------------------
+
+  openAgent(agent: Agent | null): void {
+    if (agent) {
+      this.agentDraft = { ...agent };
+      return;
+    }
+    const hood = NEIGHBORHOODS[0];
+    this.agentDraft = {
+      id: null,
+      name: '',
+      badgeNumber: '',
+      role: 'transit_agent',
+      agency: ROLE_AGENCY.transit_agent,
+      status: 'active',
+      neighborhood: hood.name,
+      lat: Number((hood.lat + jitter()).toFixed(6)),
+      lng: Number((hood.lng + jitter()).toFixed(6)),
+    };
+  }
+
+  changeRole(role: AgentRole): void {
+    if (!this.agentDraft) return;
+    this.agentDraft.role = role;
+    this.agentDraft.agency = ROLE_AGENCY[role];
+  }
+
+  changeAgentNeighborhood(name: string): void {
+    const a = this.agentDraft;
+    const hood = NEIGHBORHOODS.find((n) => n.name === name);
+    if (!a || !hood) return;
+    a.neighborhood = name;
+    a.lat = Number((hood.lat + jitter()).toFixed(6));
+    a.lng = Number((hood.lng + jitter()).toFixed(6));
+  }
+
+  saveAgent(): void {
+    const a = this.agentDraft;
+    if (!a) return;
+    this.city.upsertAgent({
+      ...a,
+      id: a.id ?? newId('AG'),
+      name: a.name.trim(),
+      badgeNumber: a.badgeNumber.trim(),
+      lat: Number(a.lat),
+      lng: Number(a.lng),
+    });
+    this.closeDrawer();
+  }
+
+  removeAgent(agent: Agent): void {
+    if (confirm(`Excluir o agente ${agent.name}?`)) this.city.deleteAgent(agent.id);
+  }
+
+  // ---------------------------------------------------------------------------
+
+  showOnMap(kind: 'equipment' | 'agent', id: string): void {
+    this.city.selection.set({ kind, id });
     this.navigateToMap.emit();
   }
 
-  inspectAgentOnMap(agent: FieldAgent): void {
-    this.inventory.focusOnCoordinates(agent.location.lat, agent.location.lng, 16);
-    this.navigateToMap.emit();
+  resetData(): void {
+    if (confirm('Restaurar os dados de exemplo? As alterações feitas serão perdidas.')) this.city.resetToMock();
   }
 
-  getGenericSpecEntries(
-    device: CityDevice
-  ): { key: string; value: string | number | boolean }[] {
-    if (device.category === 'radar' || device.category === 'camera') return [];
-    return Object.entries(device.specs)
-      .slice(0, 4)
-      .map(([key, value]) => ({ key, value }));
+  isOverdue(iso: string): boolean {
+    return daysUntil(iso) < 0;
   }
 
-  getCategoryLabel(category: DeviceCategory): string {
-    const labels: Record<DeviceCategory, string> = {
-      radar: 'Radar de fiscalização',
-      camera: 'Câmera de vídeo',
-      truck_scale: 'Balança de caminhão',
-      autonomous_patrol: 'Patrulha autônoma',
-      automated_barrier: 'Cancela automática',
-      transit_vehicle: 'Veículo de transporte',
-      parking_totem: 'Totem rotativo',
-      shared_micromobility: 'Micromobilidade',
-      police_vehicle: 'Viatura policial',
-    };
-    return labels[category];
-  }
-
-  getStatusLabelWithSymbol(status: DeviceStatus): string {
-    const labels: Record<DeviceStatus, string> = {
-      operational: '● Operacional',
-      malfunction: '▲ Mau funcionamento',
-      maintenance: '◆ Em manutenção',
-      stolen: '✖ Furtado',
-      disabled: '○ Desativado',
-      not_installed: '○ Não instalado',
-    };
-    return labels[status];
-  }
-
-  getStatusBadgeClass(status: DeviceStatus): string {
-    switch (status) {
-      case 'operational':
-        return 'bg-[#4ca975]/20 text-[#75d49e] border-[#4ca975]/50';
-      case 'malfunction':
-        return 'bg-[#d9534f]/20 text-[#f28b88] border-[#d9534f]/50';
-      case 'maintenance':
-        return 'bg-[#d99b38]/20 text-[#f0c271] border-[#d99b38]/50';
-      case 'stolen':
-        return 'bg-[#8c6bb1]/25 text-[#cdb5e8] border-[#8c6bb1]/60';
-      case 'disabled':
-      case 'not_installed':
-        return 'bg-[#101517] text-[#a39e93] border-[#2a3439]';
-    }
-  }
-
-  getUrgencyLabel(urgency: MaintenanceUrgency): string {
-    switch (urgency) {
-      case 'immediate':
-        return 'urgência imediata';
-      case 'scheduled':
-        return 'manutenção agendada';
-      case 'none':
-        return 'manutenção em dia';
-    }
-  }
-
-  getAgentRoleLabel(role: FieldAgent['role']): string {
-    switch (role) {
-      case 'traffic_agent':
-        return 'Agente de trânsito';
-      case 'civil_guard':
-        return 'Guarda municipal';
-      case 'military_police':
-        return 'Polícia militar';
-    }
-  }
-
-  getAgentStatusLabel(status: FieldAgent['status']): string {
-    switch (status) {
-      case 'patrolling':
-        return '● Em patrulha';
-      case 'responding':
-        return '▲ Em ocorrência';
-      case 'break':
-        return '○ Intervalo';
-      case 'off_duty':
-        return '○ Fora de turno';
-    }
+  formatDate(iso: string): string {
+    return iso.split('-').reverse().join('/');
   }
 }

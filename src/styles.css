@@ -55,9 +55,6 @@ dialog::backdrop {
   font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
 }
 
-.dark-matter-tiles {
-  filter: invert(100%) hue-rotate(180deg) brightness(84%) contrast(115%) saturate(80%) !important;
-}
 
 .leaflet-popup-content-wrapper,
 .leaflet-popup-tip {
@@ -81,4 +78,14 @@ dialog::backdrop {
 .leaflet-control-zoom a:hover {
   background-color: #232c30 !important;
   color: #ff7a3d !important;
+}
+
+.district-name {
+  color: rgba(233, 228, 216, 0.5);
+  font: 600 11px/16px 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
+  letter-spacing: 0.12em;
+  text-align: center;
+  text-transform: uppercase;
+  text-shadow: 0 0 4px #101517, 0 0 8px #101517;
+  white-space: nowrap;
 }

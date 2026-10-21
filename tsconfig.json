@@ -23,7 +23,6 @@
   "include": [
     "src/**/*.d.ts",
     "src/**/*.ts",
-    "models/**/*.ts",
     "api/**/*.ts"
   ],
   "angularCompilerOptions": {
