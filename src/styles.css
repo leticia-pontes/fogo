@@ -23,7 +23,7 @@ html, body {
   margin: 0;
   background-color: var(--color-bg-primary);
   color: var(--color-text-sand);
-  font-family: 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, sans-serif;
+  font-family: 'Tomorrow', system-ui, -apple-system, sans-serif;
   scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
   scrollbar-width: thin;
 }
@@ -52,7 +52,7 @@ dialog::backdrop {
 /* Leaflet Map Dark Graphite Styling */
 .leaflet-container {
   background: #0d1214 !important;
-  font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
+  font-family: 'Tomorrow', system-ui, sans-serif;
 }
 
 
@@ -82,7 +82,7 @@ dialog::backdrop {
 
 .district-name {
   color: rgba(233, 228, 216, 0.5);
-  font: 600 11px/16px 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
+  font: 600 11px/16px 'Tomorrow', system-ui, sans-serif;
   letter-spacing: 0.12em;
   text-align: center;
   text-transform: uppercase;

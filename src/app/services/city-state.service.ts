@@ -47,8 +47,8 @@ export class CityStateService {
   readonly events = signal<CityEvent[]>([]);
   readonly filters = signal<OpsFilters>(EMPTY_FILTERS);
   readonly selection = signal<Selection>(null);
-  /** Pedido de edição vindo da Central; consumido pelo Inventário ao abrir. */
-  readonly editRequest = signal<Selection>(null);
+  /** Bairro em véspera de horário de pico (cenário de homologação): a previsão usa fluxo e efetivo ampliados. */
+  readonly peakSurge = signal<string | null>(null);
   readonly telemetryOn = signal(false);
   /** Assinaturas das ações preditivas já aplicadas (ver PredictionService). */
   readonly appliedActions = signal<ReadonlySet<string>>(new Set());
@@ -182,14 +182,18 @@ export class CityStateService {
   upsertEquipment(item: Equipment): void {
     const exists = this.equipment().some((e) => e.id === item.id);
     this.equipment.update((list) => (exists ? list.map((e) => (e.id === item.id ? item : e)) : [item, ...list]));
-    this.log(`${exists ? 'Equipamento atualizado' : 'Novo equipamento cadastrado'}: ${item.serialNumber} (${item.location.neighborhood})`, 'info');
+    this.log(
+      `${exists ? 'Equipamento atualizado' : 'Novo equipamento cadastrado'}: ${item.serialNumber} (${item.location.neighborhood})`,
+      'info',
+      exists ? 'system' : 'equipment_created'
+    );
   }
 
   deleteEquipment(id: string): void {
     const item = this.equipment().find((e) => e.id === id);
     this.equipment.update((list) => list.filter((e) => e.id !== id));
     if (this.selection()?.id === id) this.selection.set(null);
-    if (item) this.log(`Equipamento removido: ${item.serialNumber}`, 'info');
+    if (item) this.log(`Equipamento removido: ${item.serialNumber}`, 'info', 'system');
   }
 
   setEquipmentStatus(id: string, status: EquipmentStatus): void {
@@ -207,7 +211,7 @@ export class CityStateService {
       },
     }));
     const item = this.equipment().find((e) => e.id === id);
-    if (item) this.log(`${item.serialNumber} → ${STATUS_LABELS[status]}`, status === 'operational' ? 'good' : 'bad');
+    if (item) this.log(`${item.serialNumber} → ${STATUS_LABELS[status]}`, status === 'operational' ? 'good' : 'bad', 'status_changed');
   }
 
   patchEquipment(ids: string[], fn: (e: Equipment) => Equipment): void {
@@ -218,14 +222,18 @@ export class CityStateService {
   upsertAgent(agent: Agent): void {
     const exists = this.agents().some((a) => a.id === agent.id);
     this.agents.update((list) => (exists ? list.map((a) => (a.id === agent.id ? agent : a)) : [agent, ...list]));
-    this.log(`${exists ? 'Agente atualizado' : 'Novo agente cadastrado'}: ${agent.name} (${agent.neighborhood})`, 'info');
+    this.log(
+      `${exists ? 'Agente atualizado' : 'Novo agente cadastrado'}: ${agent.name} (${agent.neighborhood})`,
+      'info',
+      exists ? 'system' : 'agent_created'
+    );
   }
 
   deleteAgent(id: string): void {
     const agent = this.agents().find((a) => a.id === id);
     this.agents.update((list) => list.filter((a) => a.id !== id));
     if (this.selection()?.id === id) this.selection.set(null);
-    if (agent) this.log(`Agente removido: ${agent.name}`, 'info');
+    if (agent) this.log(`Agente removido: ${agent.name}`, 'info', 'system');
   }
 
   patchAgents(ids: string[], fn: (a: Agent) => Agent): void {
@@ -245,15 +253,17 @@ export class CityStateService {
     this.filters.set(EMPTY_FILTERS);
     this.events.set([]);
     this.appliedActions.set(new Set());
-    this.log('Dados de exemplo restaurados', 'info');
+    this.peakSurge.set(null);
+    this.log('Dados de exemplo restaurados', 'info', 'system');
   }
 
-  log(message: string, tone: CityEvent['tone']): void {
+  log(message: string, tone: CityEvent['tone'], kind: CityEvent['kind'] = 'system'): void {
     const event: CityEvent = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       time: new Date().toLocaleTimeString('pt-BR'),
       message,
       tone,
+      kind,
     };
     this.events.update((list) => [event, ...list].slice(0, 40));
   }
@@ -270,14 +280,14 @@ export class CityStateService {
   private startTelemetry(): void {
     if (!this.isBrowser || this.telemetryTimer) return;
     this.telemetryOn.set(true);
-    this.log('Telemetria em tempo real iniciada', 'info');
+    this.log('Telemetria em tempo real iniciada', 'info', 'system');
     this.telemetryTimer = setInterval(() => this.telemetryTick(), TELEMETRY_INTERVAL_MS);
   }
 
   private stopTelemetry(): void {
     if (this.telemetryTimer) clearInterval(this.telemetryTimer);
     this.telemetryTimer = null;
-    if (this.telemetryOn()) this.log('Telemetria em tempo real pausada', 'info');
+    if (this.telemetryOn()) this.log('Telemetria em tempo real pausada', 'info', 'system');
     this.telemetryOn.set(false);
   }
 
@@ -303,7 +313,11 @@ export class CityStateService {
               ? { priority: 'scheduled', nextDate: daysFromToday(1) }
               : { priority: 'none', nextDate: daysFromToday(30) },
       }));
-      this.log(`[Telemetria] ${target.serialNumber} (${target.location.neighborhood}) → ${STATUS_LABELS[next]}`, next === 'operational' ? 'good' : 'bad');
+      this.log(
+        `[Telemetria] ${target.serialNumber} (${target.location.neighborhood}) → ${STATUS_LABELS[next]}`,
+        next === 'operational' ? 'good' : 'bad',
+        'telemetry'
+      );
     }
 
     // Deslocamento de veículos e agentes, com leve atração ao centro do bairro.

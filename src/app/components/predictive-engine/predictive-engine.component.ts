@@ -1,11 +1,13 @@
-import { Component, EventEmitter, Output, inject } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { EMPTY_FILTERS, CityStateService } from '../../services/city-state.service';
 import { Prediction, PredictionKind, PredictionService } from '../../services/prediction.service';
+import { UiStateService } from '../../services/ui-state.service';
 
 const KIND_LABELS: Record<PredictionKind, string> = {
   traffic_collapse: 'Risco viário',
   batch_failure: 'Manutenção preditiva',
   staff_reinforcement: 'Efetivo',
+  security_patrol: 'Segurança',
 };
 
 @Component({
@@ -43,12 +45,12 @@ const KIND_LABELS: Record<PredictionKind, string> = {
           >
             <header class="flex items-start justify-between gap-3">
               <div>
-                <span class="text-[11px] uppercase tracking-wide text-fogo-muted">{{ kindLabels[p.kind] }}</span>
+                <span class="text-[12px] uppercase tracking-wide text-fogo-muted">{{ kindLabels[p.kind] }}</span>
                 <p class="text-sm font-semibold">{{ p.subject }}</p>
                 <p class="text-xs text-fogo-muted">{{ p.horizon }}</p>
               </div>
               <div class="text-right shrink-0">
-                <span class="text-[11px] text-fogo-muted block">Risco</span>
+                <span class="text-[12px] text-fogo-muted block">Risco</span>
                 <strong class="font-mono text-xl" [class]="riskClass(p.riskScore)">{{ p.riskScore }}</strong>
                 <span class="text-xs text-fogo-muted">/100</span>
               </div>
@@ -125,6 +127,14 @@ const KIND_LABELS: Record<PredictionKind, string> = {
             alerta de colapso. Risco = 60 × déficit relativo + 2 × ocorrências por semana.
           </li>
           <li>
+            <strong class="text-fogo-sand">Risco de novos furtos</strong>: 2 ou mais furtos no mesmo bairro. Efetivo recomendado
+            de Guarda/PM = 2 + 1 a cada 2 furtos. Risco = 40 + 15 por furto + 10 por agente em falta.
+          </li>
+          <li>
+            <strong class="text-fogo-sand">Véspera de pico</strong> (cenário de homologação): o bairro é avaliado com fluxo 40%
+            acima da média histórica e 2 agentes a mais necessários.
+          </li>
+          <li>
             Os remanejamentos priorizam agentes de folga do próprio bairro e, depois, agentes excedentes dos bairros com maior
             folga, sem retirar ninguém de um bairro que ficaria abaixo do necessário.
           </li>
@@ -134,13 +144,12 @@ const KIND_LABELS: Record<PredictionKind, string> = {
   `,
   styles: `
     .block-box { @apply p-3 rounded-lg bg-fogo-bg border border-fogo-border space-y-1.5; }
-    .block-title { @apply text-[11px] font-semibold uppercase tracking-wide text-fogo-muted; }
+    .block-title { @apply text-[12px] font-semibold uppercase tracking-wide text-fogo-muted; }
   `,
 })
 export class PredictiveEngineComponent {
-  @Output() navigateToMap = new EventEmitter<void>();
-
   readonly city = inject(CityStateService);
+  private readonly ui = inject(UiStateService);
   readonly predictions = inject(PredictionService);
   readonly kindLabels = KIND_LABELS;
 
@@ -161,6 +170,6 @@ export class PredictiveEngineComponent {
       this.city.filters.set(EMPTY_FILTERS);
       if (firstId) this.city.selection.set({ kind: 'equipment', id: firstId });
     }
-    this.navigateToMap.emit();
+    this.ui.goToMap();
   }
 }

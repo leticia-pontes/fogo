@@ -134,9 +134,19 @@ export interface OpsFilters {
   agency: string;
 }
 
+export type CityEventKind =
+  | 'equipment_created'
+  | 'agent_created'
+  | 'status_changed'
+  | 'telemetry'
+  | 'prediction_applied'
+  | 'scenario'
+  | 'system';
+
 export interface CityEvent {
   id: string;
   time: string;
   message: string;
   tone: 'info' | 'good' | 'bad';
+  kind: CityEventKind;
 }

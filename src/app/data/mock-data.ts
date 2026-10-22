@@ -251,3 +251,72 @@ export function buildMockAgents(): Agent[] {
 
   return agents;
 }
+
+// -----------------------------------------------------------------------------
+// "Telemetria detectada": dados realistas para pré-preencher os formulários de cadastro
+// -----------------------------------------------------------------------------
+
+const DETECTED_AGENT_NAMES = [
+  'Paula Rezende', 'Otávio Brandão', 'Sabrina Toledo', 'Caio Fontes', 'Lívia Sampaio',
+  'Henrique Duarte', 'Natália Prado', 'Igor Valadares', 'Elisa Moura', 'Rafaela Couto',
+];
+
+function pick<T>(list: readonly T[]): T {
+  return list[Math.floor(Math.random() * list.length)];
+}
+
+/** Ponto livre sobre uma via do bairro (depois das posições usadas pelos dados de exemplo). */
+function freeSpot(neighborhood: string) {
+  const index = Math.max(0, NEIGHBORHOODS.findIndex((n) => n.name === neighborhood));
+  const spots = districtSpots(index, SPOTS_PER_DISTRICT + 12);
+  return { hood: NEIGHBORHOODS[index], spot: spots[SPOTS_PER_DISTRICT + Math.floor(Math.random() * 12)] ?? pick(spots) };
+}
+
+export function detectedEquipmentTelemetry(
+  type: EquipmentType,
+  neighborhood: string,
+  takenSerials: ReadonlySet<string>
+): Omit<Equipment, 'id'> {
+  const { hood, spot } = freeSpot(neighborhood);
+  const [brand, model] = pick(MODELS[type]);
+  let serialNumber = '';
+  do {
+    serialNumber = `${SERIAL_PREFIX[type]}-${hood.cepPrefix.slice(-3)}-${String(1000 + Math.floor(Math.random() * 9000))}`;
+  } while (takenSerials.has(serialNumber.toLowerCase()));
+
+  return {
+    serialNumber,
+    brand,
+    model,
+    agency: agencyFor(type, 2),
+    type,
+    customProperties: seedCustomProperties(type, Math.floor(Math.random() * 97)),
+    location: {
+      cep: `${hood.cepPrefix}-${String(Math.floor(Math.random() * 1000)).padStart(3, '0')}`,
+      neighborhood: hood.name,
+      cityUf: CITY_UF,
+      street: spot.street,
+      reference: spot.kmMarker ?? pick(hood.references),
+      lat: spot.lat,
+      lng: spot.lng,
+    },
+    status: 'operational',
+    maintenance: { priority: 'scheduled', nextDate: daysFromToday(30) },
+  } as Omit<Equipment, 'id'>;
+}
+
+export function detectedAgentTelemetry(neighborhood: string): Omit<Agent, 'id'> {
+  const { hood, spot } = freeSpot(neighborhood);
+  const role = pick(['transit_agent', 'municipal_guard', 'military_police'] as const);
+  const prefix = role === 'military_police' ? 'PM' : role === 'municipal_guard' ? 'GM' : 'AT';
+  return {
+    name: pick(DETECTED_AGENT_NAMES),
+    badgeNumber: `${prefix}-${5000 + Math.floor(Math.random() * 4000)}`,
+    role,
+    agency: { transit_agent: 'SEMOB', municipal_guard: 'Guarda Municipal', military_police: 'Polícia Militar' }[role],
+    status: 'active',
+    neighborhood: hood.name,
+    lat: spot.lat,
+    lng: spot.lng,
+  };
+}

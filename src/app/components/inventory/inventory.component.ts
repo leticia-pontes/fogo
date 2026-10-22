@@ -1,6 +1,12 @@
-import { Component, EventEmitter, HostListener, OnInit, Output, computed, inject, signal } from '@angular/core';
+import { Component, HostListener, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { CITY_UF, NEIGHBORHOODS, daysFromToday } from '../../data/mock-data';
+import {
+  CITY_UF,
+  NEIGHBORHOODS,
+  daysFromToday,
+  detectedAgentTelemetry,
+  detectedEquipmentTelemetry,
+} from '../../data/mock-data';
 import {
   AGENCIES,
   AGENT_STATUS_COLORS,
@@ -26,7 +32,8 @@ import {
   EquipmentType,
   MaintenancePriority,
 } from '../../models/fogo.models';
-import { CityStateService, daysUntil } from '../../services/city-state.service';
+import { CityStateService } from '../../services/city-state.service';
+import { UiStateService } from '../../services/ui-state.service';
 
 type CustomValue = string | number | boolean | null;
 
@@ -113,15 +120,12 @@ function jitter(): number {
 
       @if (tab() === 'equipment') {
         <div class="bg-fogo-panel border border-fogo-border rounded-xl overflow-x-auto">
-          <table class="w-full text-sm min-w-[960px]">
+          <table class="w-full text-sm min-w-[620px]">
             <thead class="text-xs text-fogo-muted text-left border-b border-fogo-border">
               <tr>
                 <th class="th">Equipamento</th>
-                <th class="th">Tipo</th>
-                <th class="th">Localização</th>
-                <th class="th">Órgão</th>
+                <th class="th">Bairro</th>
                 <th class="th">Situação</th>
-                <th class="th">Manutenção</th>
                 <th class="th text-right">Ações</th>
               </tr>
             </thead>
@@ -130,14 +134,9 @@ function jitter(): number {
                 <tr class="border-b border-fogo-border/60 hover:bg-fogo-bg/50">
                   <td class="td">
                     <p class="font-medium">{{ e.serialNumber }}</p>
-                    <p class="text-xs text-fogo-muted">{{ e.brand }} · {{ e.model }}</p>
+                    <p class="text-xs text-fogo-muted">{{ typeLabels[e.type] }}</p>
                   </td>
-                  <td class="td text-xs">{{ typeLabels[e.type] }}</td>
-                  <td class="td">
-                    <p class="text-xs">{{ e.location.street }} – {{ e.location.reference }}</p>
-                    <p class="text-xs text-fogo-muted">{{ e.location.neighborhood }} · CEP {{ e.location.cep }}</p>
-                  </td>
-                  <td class="td text-xs">{{ e.agency }}</td>
+                  <td class="td text-xs">{{ e.location.neighborhood }}</td>
                   <td class="td">
                     <div class="flex items-center gap-2">
                       <i class="w-2.5 h-2.5 rounded-full shrink-0" [style.background]="statusColors[e.status]"></i>
@@ -153,38 +152,26 @@ function jitter(): number {
                       </select>
                     </div>
                   </td>
-                  <td class="td text-xs">
-                    <p [class]="e.maintenance.priority === 'immediate' ? 'text-fogo-red font-medium' : ''">
-                      {{ priorityLabels[e.maintenance.priority] }}
-                    </p>
-                    @if (e.maintenance.nextDate) {
-                      <p [class]="isOverdue(e.maintenance.nextDate) ? 'text-fogo-red' : 'text-fogo-muted'">
-                        {{ formatDate(e.maintenance.nextDate) }}
-                      </p>
-                    }
-                  </td>
                   <td class="td">
                     <div class="flex justify-end gap-1.5">
                       <button type="button" class="btn-row" (click)="showOnMap('equipment', e.id)">Mapa</button>
-                      <button type="button" class="btn-row" (click)="openEquipment(e)">Editar</button>
+                      <button type="button" class="btn-row" (click)="openEquipment(e)">Detalhes</button>
                       <button type="button" class="btn-row hover:!border-fogo-red" (click)="removeEquipment(e)">Excluir</button>
                     </div>
                   </td>
                 </tr>
               } @empty {
-                <tr><td colspan="7" class="td text-center text-fogo-muted py-10">Nenhum equipamento encontrado.</td></tr>
+                <tr><td colspan="4" class="td text-center text-fogo-muted py-10">Nenhum equipamento encontrado.</td></tr>
               }
             </tbody>
           </table>
         </div>
       } @else {
         <div class="bg-fogo-panel border border-fogo-border rounded-xl overflow-x-auto">
-          <table class="w-full text-sm min-w-[820px]">
+          <table class="w-full text-sm min-w-[560px]">
             <thead class="text-xs text-fogo-muted text-left border-b border-fogo-border">
               <tr>
                 <th class="th">Agente</th>
-                <th class="th">Função</th>
-                <th class="th">Órgão</th>
                 <th class="th">Bairro</th>
                 <th class="th">Status</th>
                 <th class="th text-right">Ações</th>
@@ -195,10 +182,8 @@ function jitter(): number {
                 <tr class="border-b border-fogo-border/60 hover:bg-fogo-bg/50">
                   <td class="td">
                     <p class="font-medium">{{ a.name }}</p>
-                    <p class="text-xs text-fogo-muted">Matrícula {{ a.badgeNumber }}</p>
+                    <p class="text-xs text-fogo-muted">{{ roleLabels[a.role] }}</p>
                   </td>
-                  <td class="td text-xs">{{ roleLabels[a.role] }}</td>
-                  <td class="td text-xs">{{ a.agency }}</td>
                   <td class="td text-xs">{{ a.neighborhood }}</td>
                   <td class="td">
                     <div class="flex items-center gap-2">
@@ -218,13 +203,13 @@ function jitter(): number {
                   <td class="td">
                     <div class="flex justify-end gap-1.5">
                       <button type="button" class="btn-row" (click)="showOnMap('agent', a.id)">Mapa</button>
-                      <button type="button" class="btn-row" (click)="openAgent(a)">Editar</button>
+                      <button type="button" class="btn-row" (click)="openAgent(a)">Detalhes</button>
                       <button type="button" class="btn-row hover:!border-fogo-red" (click)="removeAgent(a)">Excluir</button>
                     </div>
                   </td>
                 </tr>
               } @empty {
-                <tr><td colspan="6" class="td text-center text-fogo-muted py-10">Nenhum agente encontrado.</td></tr>
+                <tr><td colspan="4" class="td text-center text-fogo-muted py-10">Nenhum agente encontrado.</td></tr>
               }
             </tbody>
           </table>
@@ -245,11 +230,23 @@ function jitter(): number {
           @if (equipmentDraft; as d) {
             <form #f="ngForm" (ngSubmit)="saveEquipment()" class="flex flex-col h-full">
               <header class="p-4 border-b border-fogo-border flex items-center justify-between">
-                <h2 id="drawer-title" class="text-base font-semibold">{{ d.id ? 'Editar equipamento' : 'Novo equipamento' }}</h2>
+                <h2 id="drawer-title" class="text-base font-semibold">{{ d.id ? 'Detalhes do equipamento' : 'Novo equipamento' }}</h2>
                 <button type="button" (click)="closeDrawer()" class="text-fogo-muted hover:text-fogo-sand cursor-pointer" aria-label="Fechar">✕</button>
               </header>
 
               <div class="flex-1 overflow-y-auto p-4 space-y-4">
+                @if (!d.id) {
+                  <button
+                    type="button"
+                    (click)="autofillEquipment()"
+                    class="w-full py-2.5 px-3 rounded-lg border text-sm font-semibold cursor-pointer transition-colors"
+                    [class]="autofillHint()
+                      ? 'border-fogo-ember bg-fogo-ember/15 text-fogo-ember animate-pulse'
+                      : 'border-fogo-border bg-fogo-bg text-fogo-sand hover:border-fogo-ember'"
+                  >
+                    ⚡ Preencher com Telemetria Detectada
+                  </button>
+                }
                 <fieldset class="grid grid-cols-2 gap-3">
                   <label class="field col-span-2">
                     <span>Tipo de equipamento</span>
@@ -384,10 +381,24 @@ function jitter(): number {
           } @else if (agentDraft; as a) {
             <form #g="ngForm" (ngSubmit)="saveAgent()" class="flex flex-col h-full">
               <header class="p-4 border-b border-fogo-border flex items-center justify-between">
-                <h2 id="drawer-title" class="text-base font-semibold">{{ a.id ? 'Editar agente' : 'Novo agente' }}</h2>
+                <h2 id="drawer-title" class="text-base font-semibold">{{ a.id ? 'Detalhes do agente' : 'Novo agente' }}</h2>
                 <button type="button" (click)="closeDrawer()" class="text-fogo-muted hover:text-fogo-sand cursor-pointer" aria-label="Fechar">✕</button>
               </header>
               <div class="flex-1 overflow-y-auto p-4 grid grid-cols-2 gap-3 content-start">
+                <div class="col-span-2">
+                @if (!a.id) {
+                  <button
+                    type="button"
+                    (click)="autofillAgent()"
+                    class="w-full py-2.5 px-3 rounded-lg border text-sm font-semibold cursor-pointer transition-colors"
+                    [class]="autofillHint()
+                      ? 'border-fogo-ember bg-fogo-ember/15 text-fogo-ember animate-pulse'
+                      : 'border-fogo-border bg-fogo-bg text-fogo-sand hover:border-fogo-ember'"
+                  >
+                    ⚡ Preencher com Telemetria Detectada
+                  </button>
+                }
+                </div>
                 <label class="field col-span-2">
                   <span>Nome *</span>
                   <input name="name" [class]="inputClass" [(ngModel)]="a.name" required />
@@ -457,9 +468,10 @@ function jitter(): number {
   `,
 })
 export class InventoryComponent implements OnInit {
-  @Output() navigateToMap = new EventEmitter<void>();
-
   readonly city = inject(CityStateService);
+  private readonly ui = inject(UiStateService);
+  /** Destaca o botão de auto-preenchimento (cadastro rápido aberto pela calibração). */
+  readonly autofillHint = signal(false);
 
   readonly inputClass = INPUT_CLASS;
   readonly types = EQUIPMENT_TYPES;
@@ -509,14 +521,21 @@ export class InventoryComponent implements OnInit {
   });
 
   ngOnInit(): void {
-    const request = this.city.editRequest();
+    const request = this.ui.inventoryRequest();
     if (!request) return;
-    this.city.editRequest.set(null);
+    this.ui.inventoryRequest.set(null);
+    if (request.kind === 'agent') this.tab.set('agents');
+
+    if (request.mode === 'create') {
+      this.autofillHint.set(!!request.hintAutofill);
+      if (request.kind === 'equipment') this.openEquipment(null);
+      else this.openAgent(null);
+      return;
+    }
     if (request.kind === 'equipment') {
       const item = this.city.equipment().find((e) => e.id === request.id);
       if (item) this.openEquipment(item);
     } else {
-      this.tab.set('agents');
       const agent = this.city.agents().find((a) => a.id === request.id);
       if (agent) this.openAgent(agent);
     }
@@ -524,8 +543,14 @@ export class InventoryComponent implements OnInit {
 
   @HostListener('document:keydown.escape')
   closeDrawer(): void {
+    // Esc fecha primeiro o formulário; sem formulário aberto, fecha o inventário.
+    if (!this.equipmentDraft && !this.agentDraft) {
+      this.ui.closeInventory();
+      return;
+    }
     this.equipmentDraft = null;
     this.agentDraft = null;
+    this.autofillHint.set(false);
   }
 
   tabClass(active: boolean): string {
@@ -581,6 +606,32 @@ export class InventoryComponent implements OnInit {
       },
       custom: { ...(defaultCustomProperties('radar') as Record<string, CustomValue>) },
     };
+  }
+
+  autofillEquipment(): void {
+    const d = this.equipmentDraft;
+    if (!d) return;
+    const taken = new Set(this.city.equipment().map((e) => e.serialNumber.toLowerCase()));
+    const detected = detectedEquipmentTelemetry(d.type, d.location.neighborhood, taken);
+    Object.assign(d, {
+      serialNumber: detected.serialNumber,
+      brand: detected.brand,
+      model: detected.model,
+      agency: detected.agency,
+      status: detected.status,
+      priority: detected.maintenance.priority,
+      nextDate: detected.maintenance.nextDate ?? '',
+      location: { ...detected.location },
+      custom: { ...(detected.customProperties as Record<string, CustomValue>) },
+    });
+    this.autofillHint.set(false);
+  }
+
+  autofillAgent(): void {
+    const a = this.agentDraft;
+    if (!a) return;
+    Object.assign(a, detectedAgentTelemetry(a.neighborhood));
+    this.autofillHint.set(false);
   }
 
   changeType(type: EquipmentType): void {
@@ -702,18 +753,10 @@ export class InventoryComponent implements OnInit {
 
   showOnMap(kind: 'equipment' | 'agent', id: string): void {
     this.city.selection.set({ kind, id });
-    this.navigateToMap.emit();
+    this.ui.goToMap();
   }
 
   resetData(): void {
     if (confirm('Restaurar os dados de exemplo? As alterações feitas serão perdidas.')) this.city.resetToMock();
-  }
-
-  isOverdue(iso: string): boolean {
-    return daysUntil(iso) < 0;
-  }
-
-  formatDate(iso: string): string {
-    return iso.split('-').reverse().join('/');
   }
 }

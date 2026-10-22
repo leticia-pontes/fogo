@@ -18,7 +18,7 @@ npm run build      # bundle de produção em dist/fogo-nexus
 
 ## Estrutura
 
-```
+```txt
 src/app/
 ├── models/
 │   ├── fogo.models.ts          # Tipos do domínio (Equipment, Agent, filtros, regiões, alertas)
@@ -62,7 +62,7 @@ Cada card de previsão responde a três perguntas:
 3. **Recomendação de decisão**: inclui um botão **Aplicar recomendação** que altera o estado da cidade
 
 | Previsão | Base de dados | Ação aplicada |
-|---|---|---|
+| --- | --- | --- |
 | Índice de Risco de Colapso Viário | radares, câmeras e cancelas indisponíveis + fluxo histórico no pico + déficit de agentes | abre OS imediata e convoca ou realoca agentes |
 | Tendência de Falha em Lote | taxa de falha de um mesmo fabricante/modelo comparada ao restante da frota | OS imediata para as unidades com falha e preventiva antecipada para as demais |
 | Necessidade de Reforço de Efetivo | efetivo atual vs. necessário no pico + ocorrências por semana | convoca agentes de folga ou realoca excedentes de outros bairros |

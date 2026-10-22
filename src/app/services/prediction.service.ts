@@ -4,7 +4,7 @@ import { STATUS_LABELS, isUnavailable } from '../models/equipment-schema';
 import { Agent, Equipment, EquipmentType, MaintenancePriority } from '../models/fogo.models';
 import { CityStateService, daysUntil } from './city-state.service';
 
-export type PredictionKind = 'traffic_collapse' | 'batch_failure' | 'staff_reinforcement';
+export type PredictionKind = 'traffic_collapse' | 'batch_failure' | 'staff_reinforcement' | 'security_patrol';
 
 export type PredictionAction =
   | { kind: 'move_agents'; neighborhood: string; agentIds: string[] }
@@ -30,6 +30,10 @@ export interface Prediction {
 const ENFORCEMENT_TYPES: EquipmentType[] = ['radar', 'camera', 'barrier_gate'];
 const MAX_PEAK_FLOW = Math.max(...Object.values(NEIGHBORHOOD_HISTORY).map((h) => h.peakFlowVehiclesPerHour));
 const COLLAPSE_THRESHOLD = 55;
+/** Véspera de pico (cenário de homologação): fluxo 40% acima da média e mais efetivo necessário. */
+const SURGE_FLOW_FACTOR = 1.4;
+const SURGE_EXTRA_AGENTS = 2;
+const SECURITY_ROLES: Agent['role'][] = ['municipal_guard', 'military_police'];
 
 export function actionSignature(action: PredictionAction): string {
   return action.kind === 'move_agents'
@@ -53,7 +57,8 @@ export class PredictionService {
   readonly predictions = computed<Prediction[]>(() => {
     const equipment = this.city.equipment();
     const agents = this.city.agents();
-    return [...this.neighborhoodPredictions(equipment, agents), ...this.batchFailurePredictions(equipment)].sort(
+    const surge = this.city.peakSurge();
+    return [...this.neighborhoodPredictions(equipment, agents, surge), ...this.batchFailurePredictions(equipment)].sort(
       (a, b) => b.riskScore - a.riskScore
     );
   });
@@ -88,7 +93,7 @@ export class PredictionService {
       }
     }
     this.city.markApplied(prediction.actions.map(actionSignature));
-    this.city.log(`Recomendação aplicada: ${prediction.recommendation}`, 'good');
+    this.city.log(`Recomendação aplicada: ${prediction.recommendation}`, 'good', 'prediction_applied');
   }
 
   /**
@@ -96,18 +101,27 @@ export class PredictionService {
    * colapso previsto, necessidade de reforço de efetivo. Bairros mais críticos recebem
    * prioridade no remanejamento dos agentes excedentes.
    */
-  private neighborhoodPredictions(equipment: Equipment[], agents: Agent[]): Prediction[] {
+  private neighborhoodPredictions(equipment: Equipment[], agents: Agent[], surge: string | null): Prediction[] {
     const stats = NEIGHBORHOODS.map((n) => {
-      const history = NEIGHBORHOOD_HISTORY[n.name];
+      const base = NEIGHBORHOOD_HISTORY[n.name];
+      const surging = surge === n.name;
+      const history = surging
+        ? {
+            peakWindow: 'nas próximas 2 horas (véspera de pico)',
+            peakFlowVehiclesPerHour: Math.round(base.peakFlowVehiclesPerHour * SURGE_FLOW_FACTOR),
+            incidentsPerWeek: base.incidentsPerWeek,
+            requiredAgentsAtPeak: base.requiredAgentsAtPeak + SURGE_EXTRA_AGENTS,
+          }
+        : base;
       const enforcement = equipment.filter(
         (e) => e.location.neighborhood === n.name && ENFORCEMENT_TYPES.includes(e.type) && e.status !== 'not_installed'
       );
       const down = enforcement.filter((e) => isUnavailable(e.status));
       const present = agents.filter((a) => a.neighborhood === n.name && onDuty(a)).length;
       const deficit = Math.max(0, history.requiredAgentsAtPeak - present);
-      const flowScore = Math.round((history.peakFlowVehiclesPerHour / MAX_PEAK_FLOW) * 30);
+      const flowScore = Math.min(30, Math.round((history.peakFlowVehiclesPerHour / MAX_PEAK_FLOW) * 30));
       const collapseScore = Math.min(45, down.length * 15) + flowScore + Math.min(25, deficit * 10);
-      return { n, history, enforcement, down, present, deficit, collapseScore };
+      return { n, history, surging, enforcement, down, present, deficit, collapseScore };
     }).sort((a, b) => b.collapseScore - a.collapseScore);
 
     // Excedente de cada bairro (agentes em serviço acima do necessário no pico).
@@ -148,6 +162,9 @@ export class PredictionService {
     for (const s of stats) {
       const { n, history, down, present, deficit } = s;
       const effectiveEvidence = `${present} agente(s) em serviço no bairro para ${history.requiredAgentsAtPeak} necessários no pico`;
+      const surgeEvidence = s.surging
+        ? [`Véspera de pico: fluxo previsto ${Math.round((SURGE_FLOW_FACTOR - 1) * 100)}% acima da média histórica do bairro`]
+        : [];
 
       if (s.collapseScore >= COLLAPSE_THRESHOLD && down.length > 0) {
         const plan = deficit > 0 ? planReinforcement(n.name, deficit) : null;
@@ -169,9 +186,12 @@ export class PredictionService {
             `${down.length} de ${s.enforcement.length} equipamentos de fiscalização indisponíveis: ${down
               .map((e) => `${e.serialNumber} (${STATUS_LABELS[e.status].toLowerCase()})`)
               .join(', ')}`,
-            `Fluxo histórico de ${history.peakFlowVehiclesPerHour.toLocaleString('pt-BR')} veículos/h em ${history.peakWindow}`,
+            s.surging
+              ? `Fluxo previsto de ${history.peakFlowVehiclesPerHour.toLocaleString('pt-BR')} veículos/h ${history.peakWindow}`
+              : `Fluxo histórico de ${history.peakFlowVehiclesPerHour.toLocaleString('pt-BR')} veículos/h em ${history.peakWindow}`,
             effectiveEvidence,
             `Média de ${history.incidentsPerWeek} ocorrências/semana nas últimas 12 semanas`,
+            ...surgeEvidence,
           ],
           recommendation: this.capitalize(steps.join('; ')) + '.',
           actions,
@@ -193,8 +213,9 @@ export class PredictionService {
           horizon: `Próximo pico: ${history.peakWindow}`,
           riskScore: Math.min(100, Math.round((deficit / history.requiredAgentsAtPeak) * 60 + history.incidentsPerWeek * 2)),
           evidence: [
+            ...surgeEvidence,
             effectiveEvidence,
-            `Média de ${history.incidentsPerWeek} ocorrências/semana, com concentração em ${history.peakWindow}`,
+            `Média de ${history.incidentsPerWeek} ocorrências/semana, com concentração em ${NEIGHBORHOOD_HISTORY[n.name].peakWindow}`,
             `${critical} equipamento(s) com falha grave ou furto no bairro`,
             `Fluxo histórico de ${history.peakFlowVehiclesPerHour.toLocaleString('pt-BR')} veículos/h no pico`,
           ],
@@ -204,6 +225,61 @@ export class PredictionService {
           actions: plan.ids.length ? [{ kind: 'move_agents', neighborhood: n.name, agentIds: plan.ids }] : [],
         });
       }
+    }
+
+    // Onda de furtos: 2+ furtos no mesmo bairro pedem reforço de Guarda Municipal / PM.
+    for (const { n, history } of stats) {
+      const stolen = equipment.filter((e) => e.location.neighborhood === n.name && e.status === 'stolen');
+      if (stolen.length < 2) continue;
+      const isSecurity = (a: Agent) => SECURITY_ROLES.includes(a.role);
+      const present = agents.filter((a) => a.neighborhood === n.name && onDuty(a) && isSecurity(a)).length;
+      const needed = 2 + Math.floor(stolen.length / 2);
+      const deficit = Math.max(0, needed - present);
+
+      const ids: string[] = [];
+      const parts: string[] = [];
+      const offDuty = agents
+        .filter((a) => a.neighborhood === n.name && a.status === 'off_duty' && isSecurity(a) && !reserved.has(a.id))
+        .slice(0, deficit);
+      if (offDuty.length) {
+        ids.push(...offDuty.map((a) => a.id));
+        parts.push(`convocar ${offDuty.length} agente(s) da Guarda/PM de folga em ${n.name}`);
+      }
+      let remaining = deficit - offDuty.length;
+      for (const [donor, available] of [...surplus.entries()].filter(([name, v]) => name !== n.name && v > 0).sort((a, b) => b[1] - a[1])) {
+        if (remaining <= 0) break;
+        const picked = agents
+          .filter((a) => a.neighborhood === donor && a.status === 'active' && isSecurity(a) && !reserved.has(a.id))
+          .slice(0, Math.min(available, remaining));
+        if (!picked.length) continue;
+        ids.push(...picked.map((a) => a.id));
+        surplus.set(donor, available - picked.length);
+        remaining -= picked.length;
+        parts.push(`deslocar ${picked.length} viatura(s) da Guarda/PM de ${donor} para ${n.name}`);
+      }
+      ids.forEach((id) => reserved.add(id));
+
+      result.push({
+        id: `security:${n.name}`,
+        kind: 'security_patrol',
+        title: 'Risco de Novos Furtos (Reforço de Patrulha)',
+        subject: `${n.name} (${n.zone})`,
+        neighborhood: n.name,
+        horizon: 'Próximas 6 horas',
+        riskScore: Math.min(100, 40 + stolen.length * 15 + deficit * 10),
+        evidence: [
+          `${stolen.length} furtos registrados no bairro: ${stolen.map((e) => e.serialNumber).join(', ')}`,
+          `${present} agente(s) da Guarda Municipal/PM em serviço no bairro para ${needed} recomendados`,
+          `Média de ${history.incidentsPerWeek} ocorrências/semana nas últimas 12 semanas`,
+          'Padrão considerado: furtos em sequência no mesmo bairro indicam ação coordenada',
+        ],
+        recommendation: parts.length
+          ? this.capitalize(parts.join('; ')) + ' e intensificar o patrulhamento ostensivo.'
+          : deficit > 0
+            ? `Solicitar ${deficit} viatura(s) extra(s) da Guarda/PM: não há efetivo excedente disponível.`
+            : 'Efetivo de segurança suficiente no bairro: manter patrulhamento ostensivo e monitorar as câmeras vizinhas.',
+        actions: ids.length ? [{ kind: 'move_agents', neighborhood: n.name, agentIds: ids }] : [],
+      });
     }
 
     return result;

@@ -2,9 +2,7 @@ import {
   AfterViewInit,
   Component,
   ElementRef,
-  EventEmitter,
   OnDestroy,
-  Output,
   PLATFORM_ID,
   ViewChild,
   effect,
@@ -41,6 +39,7 @@ import {
   RegionSummary,
 } from '../../models/fogo.models';
 import { CityStateService, EMPTY_FILTERS, daysUntil } from '../../services/city-state.service';
+import { UiStateService } from '../../services/ui-state.service';
 
 const SELECT_CLASS =
   'w-full py-2 px-2.5 bg-fogo-bg border border-fogo-border focus:border-fogo-ember rounded-lg text-sm text-fogo-sand outline-none';
@@ -52,36 +51,36 @@ const SELECT_CLASS =
     <div class="p-4 lg:p-5 space-y-4 max-w-[1800px] mx-auto">
       <!-- Filtros reativos -->
       <section class="bg-fogo-panel border border-fogo-border rounded-xl p-3 grid grid-cols-2 md:grid-cols-6 gap-3 items-end" aria-label="Filtros">
-        <label class="text-xs text-fogo-muted space-y-1">
+        <label class="text-[13px] text-fogo-muted space-y-1">
           <span>Tipo de equipamento</span>
-          <select #typeSel [class]="selectClass" (change)="setFilter('type', typeSel.value)">
+          <select #typeSel [class]="filterSelectClass" (change)="setFilter('type', typeSel.value)">
             <option value="all">Todos os tipos</option>
             @for (t of types; track t) {
               <option [value]="t" [selected]="city.filters().type === t">{{ typeLabels[t] }}</option>
             }
           </select>
         </label>
-        <label class="text-xs text-fogo-muted space-y-1">
+        <label class="text-[13px] text-fogo-muted space-y-1">
           <span>Situação</span>
-          <select #statusSel [class]="selectClass" (change)="setFilter('status', statusSel.value)">
+          <select #statusSel [class]="filterSelectClass" (change)="setFilter('status', statusSel.value)">
             <option value="all">Todas</option>
             @for (s of statuses; track s) {
               <option [value]="s" [selected]="city.filters().status === s">{{ statusLabels[s] }}</option>
             }
           </select>
         </label>
-        <label class="text-xs text-fogo-muted space-y-1">
+        <label class="text-[13px] text-fogo-muted space-y-1">
           <span>Bairro / região</span>
-          <select #hoodSel [class]="selectClass" (change)="setFilter('neighborhood', hoodSel.value)">
+          <select #hoodSel [class]="filterSelectClass" (change)="setFilter('neighborhood', hoodSel.value)">
             <option value="all">Todos os bairros</option>
             @for (n of neighborhoods; track n.name) {
               <option [value]="n.name" [selected]="city.filters().neighborhood === n.name">{{ n.name }}</option>
             }
           </select>
         </label>
-        <label class="text-xs text-fogo-muted space-y-1">
+        <label class="text-[13px] text-fogo-muted space-y-1">
           <span>Órgão responsável</span>
-          <select #agencySel [class]="selectClass" (change)="setFilter('agency', agencySel.value)">
+          <select #agencySel [class]="filterSelectClass" (change)="setFilter('agency', agencySel.value)">
             <option value="all">Todos os órgãos</option>
             @for (a of agencies; track a) {
               <option [value]="a" [selected]="city.filters().agency === a">{{ a }}</option>
@@ -91,7 +90,7 @@ const SELECT_CLASS =
         <button
           type="button"
           (click)="city.filters.set(emptyFilters)"
-          class="py-2 px-3 rounded-lg bg-fogo-bg border border-fogo-border text-sm text-fogo-muted hover:text-fogo-sand cursor-pointer"
+          class="py-2 px-3 rounded-lg bg-fogo-bg border border-fogo-border text-[15px] text-fogo-muted hover:text-fogo-sand cursor-pointer"
         >
           Limpar filtros
         </button>
@@ -99,13 +98,13 @@ const SELECT_CLASS =
           type="button"
           (click)="city.toggleTelemetry()"
           [attr.aria-pressed]="city.telemetryOn()"
-          class="py-2 px-3 rounded-lg text-sm font-semibold flex items-center justify-center gap-2 cursor-pointer border"
+          class="py-2 px-3 rounded-lg text-[15px] font-semibold leading-tight text-center flex items-center justify-center gap-2 cursor-pointer border"
           [class]="city.telemetryOn()
             ? 'bg-fogo-green/20 border-fogo-green text-fogo-green'
             : 'bg-fogo-ember border-fogo-ember text-fogo-bg hover:brightness-110'"
         >
-          <span class="w-2 h-2 rounded-full" [class]="city.telemetryOn() ? 'bg-fogo-green animate-pulse' : 'bg-fogo-bg'"></span>
-          {{ city.telemetryOn() ? 'Telemetria ao vivo (parar)' : 'Simular telemetria em tempo real' }}
+          <span class="w-2 h-2 shrink-0 rounded-full" [class]="city.telemetryOn() ? 'bg-fogo-green animate-pulse' : 'bg-fogo-bg'"></span>
+          <span>{{ city.telemetryOn() ? 'Telemetria ao vivo (parar)' : 'Simular telemetria em tempo real' }}</span>
         </button>
       </section>
 
@@ -147,7 +146,7 @@ const SELECT_CLASS =
       <div class="grid grid-cols-1 xl:grid-cols-12 gap-4">
         <div class="xl:col-span-8 relative rounded-xl border border-fogo-border overflow-hidden h-[460px] xl:h-[580px]">
           <div #mapEl class="absolute inset-0 z-0"></div>
-          <div class="absolute bottom-3 left-3 z-[400] bg-fogo-panel/95 border border-fogo-border rounded-lg px-3 py-2 text-[11px] text-fogo-sand space-y-1 pointer-events-none">
+          <div class="absolute bottom-3 left-3 z-[400] bg-fogo-panel/95 border border-fogo-border rounded-lg px-3 py-2 text-[12px] text-fogo-sand space-y-1 pointer-events-none">
             <div class="flex flex-wrap gap-x-3 gap-y-1">
               <span class="flex items-center gap-1.5"><i class="dot" style="background:#4ca975"></i>Operacional</span>
               <span class="flex items-center gap-1.5"><i class="dot" style="background:#d99b38"></i>Manutenção</span>
@@ -196,7 +195,7 @@ const SELECT_CLASS =
                 <p class="font-medium">{{ eq.location.street }}</p>
                 <p class="text-xs text-fogo-muted">Referência: {{ eq.location.reference }}</p>
                 <p class="text-xs text-fogo-muted">{{ eq.location.neighborhood }} · {{ eq.location.cityUf }} · CEP {{ eq.location.cep }}</p>
-                <p class="text-[11px] font-mono text-fogo-muted">{{ eq.location.lat.toFixed(5) }}, {{ eq.location.lng.toFixed(5) }}</p>
+                <p class="text-[12px] font-mono text-fogo-muted">{{ eq.location.lat.toFixed(5) }}, {{ eq.location.lng.toFixed(5) }}</p>
               </div>
               <div>
                 <span class="text-xs text-fogo-muted">Propriedades específicas</span>
@@ -257,7 +256,7 @@ const SELECT_CLASS =
                   [class]="alert.severity === 'critical' ? 'border-fogo-red/60' : alert.severity === 'high' ? 'border-fogo-amber/60' : 'border-fogo-border'"
                 >
                   <span
-                    class="text-[11px] font-semibold uppercase tracking-wide"
+                    class="text-[12px] font-semibold uppercase tracking-wide"
                     [class]="alert.severity === 'critical' ? 'text-fogo-red' : alert.severity === 'high' ? 'text-fogo-amber' : 'text-fogo-muted'"
                   >
                     {{ alert.severity === 'critical' ? 'Crítico' : alert.severity === 'high' ? 'Alta' : 'Preventiva' }}
@@ -269,7 +268,7 @@ const SELECT_CLASS =
                 <p class="text-center text-sm text-fogo-muted py-10">Nenhum alerta na visão atual.</p>
               }
             </div>
-            <p class="px-4 py-2 border-t border-fogo-border text-[11px] text-fogo-muted">
+            <p class="px-4 py-2 border-t border-fogo-border text-[12px] text-fogo-muted">
               Clique em um alerta ou marcador para ver os detalhes.
             </p>
           }
@@ -291,7 +290,7 @@ const SELECT_CLASS =
                 <div class="flex items-center justify-between gap-2">
                   <div>
                     <p class="text-sm font-semibold">{{ r.neighborhood }}</p>
-                    <p class="text-[11px] text-fogo-muted">{{ r.zone }}</p>
+                    <p class="text-[12px] text-fogo-muted">{{ r.zone }}</p>
                   </div>
                   <span
                     class="text-xs font-semibold px-2 py-0.5 rounded border"
@@ -311,7 +310,7 @@ const SELECT_CLASS =
               </button>
             }
           </div>
-          <p class="text-[11px] text-fogo-muted">
+          <p class="text-[12px] text-fogo-muted">
             Critério: indisponíveis ÷ instalados – Normal &lt; 15%, Atenção 15–30%, Crítico ≥ 30%.
           </p>
         </section>
@@ -336,7 +335,7 @@ const SELECT_CLASS =
     .kpi { @apply bg-fogo-panel border border-fogo-border rounded-xl p-3.5 flex flex-col; }
     .kpi-label { @apply text-xs text-fogo-muted; }
     .kpi-value { @apply text-2xl font-semibold font-mono mt-0.5; }
-    .kpi-sub { @apply text-[11px] text-fogo-muted mt-0.5; }
+    .kpi-sub { @apply text-[12px] text-fogo-muted mt-0.5; }
     .dot { @apply inline-block w-2.5 h-2.5 rounded-full shrink-0; }
     .detail-grid { @apply grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm; }
     .detail-grid dt { @apply text-fogo-muted; }
@@ -345,12 +344,13 @@ const SELECT_CLASS =
 })
 export class OpsCenterComponent implements AfterViewInit, OnDestroy {
   @ViewChild('mapEl', { static: true }) mapEl!: ElementRef<HTMLDivElement>;
-  @Output() editRequested = new EventEmitter<void>();
 
   readonly city = inject(CityStateService);
+  private readonly ui = inject(UiStateService);
   private readonly platformId = inject(PLATFORM_ID);
 
   readonly selectClass = SELECT_CLASS;
+  readonly filterSelectClass = SELECT_CLASS.replace('text-sm', 'text-[15px]');
   readonly emptyFilters = EMPTY_FILTERS;
   readonly types = EQUIPMENT_TYPES;
   readonly statuses = EQUIPMENT_STATUSES;
@@ -403,6 +403,18 @@ export class OpsCenterComponent implements AfterViewInit, OnDestroy {
         this.map.flyToBounds(this.cityBounds, { padding: [16, 16], duration: 0.8 });
       }
     });
+
+    // Pedidos de foco vindos da missão de calibração, dos cenários e da voz.
+    effect(() => {
+      const focus = this.ui.mapFocus();
+      if (!this.mapReady() || !this.map || !focus) return;
+      if (focus.kind === 'point') {
+        this.map.flyTo([focus.lat, focus.lng], 16, { duration: 0.8 });
+      } else {
+        const district = NEIGHBORHOODS.find((n) => n.name === focus.name);
+        if (district) this.map.flyToBounds(district.polygon, { padding: [24, 24], duration: 0.8 });
+      }
+    });
   }
 
   async ngAfterViewInit(): Promise<void> {
@@ -446,8 +458,7 @@ export class OpsCenterComponent implements AfterViewInit, OnDestroy {
   }
 
   requestEdit(kind: 'equipment' | 'agent', id: string): void {
-    this.city.editRequest.set({ kind, id });
-    this.editRequested.emit();
+    this.ui.openInventory({ mode: 'edit', kind, id });
   }
 
   focusRegion(region: RegionSummary): void {
@@ -549,7 +560,7 @@ export class OpsCenterComponent implements AfterViewInit, OnDestroy {
           html: `<div style="width:${size}px;height:${size}px;border-radius:9999px;background:#101517;border:${selected ? 4 : 2.5}px solid ${color};display:flex;align-items:center;justify-content:center;${e.status === 'stolen' ? 'border-style:dashed;' : ''}${selected ? 'box-shadow:0 0 0 4px rgba(255,122,61,.45);' : ''}">${glyph(e.type, color)}</div>`,
         }),
       })
-        .bindTooltip(`${escapeHtml(e.serialNumber)} · ${TYPE_LABELS[e.type]} · ${STATUS_LABELS[e.status]}`, { direction: 'top' })
+        .bindTooltip(`${TYPE_LABELS[e.type]} · ${STATUS_LABELS[e.status]}`, { direction: 'top' })
         .on('click', () => this.city.selection.set({ kind: 'equipment', id: e.id }))
         .addTo(this.layer);
     }
@@ -567,7 +578,7 @@ export class OpsCenterComponent implements AfterViewInit, OnDestroy {
           html: `<div style="width:26px;height:26px;border-radius:5px;background:${color};border:2px solid ${selected ? '#ff7a3d' : '#101517'};color:#101517;font:700 10px/22px sans-serif;text-align:center;">${abbr}</div>`,
         }),
       })
-        .bindTooltip(`${escapeHtml(a.name)} · ${ROLE_LABELS[a.role]} · ${AGENT_STATUS_LABELS[a.status]}`, { direction: 'top' })
+        .bindTooltip(`${escapeHtml(a.name)} · ${AGENT_STATUS_LABELS[a.status]}`, { direction: 'top' })
         .on('click', () => this.city.selection.set({ kind: 'agent', id: a.id }))
         .addTo(this.layer);
     }
