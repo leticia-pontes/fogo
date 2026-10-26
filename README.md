@@ -68,7 +68,8 @@ src/app/
 - **Painel de detalhes** ao clicar num marcador ou alerta: endereço com referência, manutenção e propriedades específicas.
 - **Alertas**: furtos, falhas graves, manutenção imediata, manutenção vencida ou prevista para os próximos 7 dias, e **agente sem atividade** (fora de turno em bairro cujo efetivo em serviço está abaixo do necessário no pico).
 - **Visão por região**: Normal (< 15%), Atenção (15–30%) ou Crítico (≥ 30%), conforme a proporção de equipamentos indisponíveis no bairro. No mapa, cada bairro é pintado com a cor correspondente (mapa coroplético).
-- **Simular telemetria em tempo real**: a cada 3 s, um equipamento falha ou se recupera e os veículos e agentes se deslocam. O feed de eventos registra cada mudança.
+- **Simular telemetria em tempo real**: a cada 3 s, um equipamento falha ou se recupera e os veículos e agentes seguem pelas vias do próprio bairro, fazendo o retorno no fim do trecho; o endereço acompanha a via atual. O feed de eventos registra cada mudança.
+- **Desempenho**: o mapa é atualizado de forma incremental. Cada marcador é criado uma única vez e depois só se move ou troca de ícone, com ícones compartilhados em cache.
 
 ## Parte 3 – Cidade Preditiva
 
@@ -88,10 +89,23 @@ O modelo é **heurístico e totalmente explicável**: os pesos estão em `predic
 
 ## Testes
 
-`npm test` roda 22 testes unitários (Vitest, via `ng test`) sobre as regras de negócio:
+`npm test` roda 27 testes unitários (Vitest, via `ng test`) sobre as regras de negócio:
 
 - `city-state.service.spec.ts`: KPIs e disponibilidade, filtros aplicados a KPIs, alertas e regiões, limiares de saúde por bairro, alertas (furto, falha, manutenção vencida ou em até 7 dias, agente sem atividade), CRUD, persistência e determinismo do seed.
+- `city-map.spec.ts`: deslocamento da telemetria sempre sobre as vias do bairro, inversão de sentido no fim do trecho e frota do teste de carga (determinística, séries únicas).
 - `prediction.service.spec.ts`: as 4 previsões (colapso viário com a fórmula do score, reforço de efetivo, falha em lote, onda de furtos), determinismo e efeito de "Aplicar recomendação" no estado.
+
+## Teste de carga
+
+Abra `http://localhost:4200/?stress=2000` (máximo 5000) para somar uma frota sintética, determinística e posicionada sobre as vias. Ela fica só em memória e não sobrescreve os dados salvos.
+
+Medição em Chrome headless com 2.072 equipamentos e 24 agentes, ao longo de 10 ciclos de telemetria:
+
+| | Antes (redesenho completo) | Depois (incremental) |
+| --- | --- | --- |
+| Tempo de script por ciclo | 216 ms | 39 ms |
+| Tempo de layout por ciclo | 17 ms | 6 ms |
+| Marcadores recriados no DOM por ciclo | 2.096 | 0 |
 
 ## Uso de IA no desenvolvimento
 

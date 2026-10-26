@@ -5,8 +5,10 @@ import {
   NEIGHBORHOOD_HISTORY,
   buildMockAgents,
   buildMockEquipment,
+  buildStressEquipment,
   daysFromToday,
 } from '../data/mock-data';
+import { stepAlongRoad } from '../data/city-map';
 import { MOBILE_TYPES, STATUS_LABELS, isUnavailable } from '../models/equipment-schema';
 import {
   Agent,
@@ -42,6 +44,10 @@ export function daysUntil(isoDate: string): number {
 export class CityStateService {
   private readonly isBrowser = isPlatformBrowser(inject(PLATFORM_ID));
   private telemetryTimer: ReturnType<typeof setInterval> | null = null;
+  /** Sentido de deslocamento de cada veículo/agente sobre a via (não persistido). */
+  private readonly headings = new Map<string, 1 | -1>();
+  /** Teste de carga (?stress=N): frota extra só em memória, para não sobrescrever o estado salvo. */
+  readonly stressCount = this.isBrowser ? Math.max(0, Math.floor(Number(new URLSearchParams(location.search).get('stress')) || 0)) : 0;
 
   readonly equipment = signal<Equipment[]>([]);
   readonly agents = signal<Agent[]>([]);
@@ -182,10 +188,15 @@ export class CityStateService {
     const saved = this.load();
     this.equipment.set(saved?.equipment ?? buildMockEquipment());
     this.agents.set(saved?.agents ?? buildMockAgents());
+    if (this.stressCount) {
+      const extra = buildStressEquipment(this.stressCount);
+      this.equipment.update((list) => [...list, ...extra]);
+      this.log(`Teste de carga: +${extra.length} equipamentos sintéticos (não são salvos)`, 'info', 'system');
+    }
 
     effect(() => {
       const state: PersistedState = { equipment: this.equipment(), agents: this.agents() };
-      if (!this.isBrowser) return;
+      if (!this.isBrowser || this.stressCount) return;
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
       } catch {
@@ -339,24 +350,30 @@ export class CityStateService {
       );
     }
 
-    // Deslocamento de veículos e agentes, com leve atração ao centro do bairro.
-    const centers = new Map(NEIGHBORHOODS.map((n) => [n.name, n]));
-    const drift = (value: number, center: number) => value + (Math.random() - 0.5) * 0.0016 + (center - value) * 0.08;
-
+    // Veículos e agentes seguem pelas vias do próprio bairro (~35 m por amostra).
     this.equipment.update((list) =>
       list.map((e) => {
-        const c = centers.get(e.location.neighborhood);
-        if (!c || e.status !== 'operational' || !MOBILE_TYPES.includes(e.type)) return e;
-        return { ...e, location: { ...e.location, lat: drift(e.location.lat, c.lat), lng: drift(e.location.lng, c.lng) } };
+        if (e.status !== 'operational' || !MOBILE_TYPES.includes(e.type)) return e;
+        const moved = this.moveOnRoad(e.id, e.location.neighborhood, e.location.lat, e.location.lng);
+        return moved ? { ...e, location: { ...e.location, lat: moved.lat, lng: moved.lng, street: moved.street } } : e;
       })
     );
     this.agents.update((list) =>
       list.map((a) => {
-        const c = centers.get(a.neighborhood);
-        if (!c || a.status === 'off_duty') return a;
-        return { ...a, lat: drift(a.lat, c.lat), lng: drift(a.lng, c.lng) };
+        if (a.status === 'off_duty') return a;
+        const moved = this.moveOnRoad(a.id, a.neighborhood, a.lat, a.lng);
+        return moved ? { ...a, lat: moved.lat, lng: moved.lng } : a;
       })
     );
+  }
+
+  private moveOnRoad(id: string, neighborhood: string, lat: number, lng: number) {
+    const district = NEIGHBORHOODS.findIndex((n) => n.name === neighborhood);
+    if (district < 0) return null;
+    const heading = this.headings.get(id) ?? (id.length % 2 ? 1 : -1);
+    const moved = stepAlongRoad(district, lat, lng, heading, 1 + Math.floor(Math.random() * 3));
+    if (moved) this.headings.set(id, moved.heading);
+    return moved;
   }
 
   private load(): PersistedState | null {

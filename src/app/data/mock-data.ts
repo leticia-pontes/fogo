@@ -1,4 +1,4 @@
-import { CITY_UF, DISTRICTS, districtSpots } from './city-map';
+import { CITY_UF, DISTRICTS, districtLanes, districtSpots } from './city-map';
 import {
   Agent,
   AgentRole,
@@ -323,4 +323,64 @@ export function detectedAgentTelemetry(neighborhood: string): Omit<Agent, 'id'> 
     lat: spot.lat,
     lng: spot.lng,
   };
+}
+
+// -----------------------------------------------------------------------------
+// Teste de carga (?stress=N): frota sintética extra, determinística e sobre as vias
+// -----------------------------------------------------------------------------
+
+export const MAX_STRESS_EQUIPMENT = 5000;
+
+/** PRNG com semente (mulberry32): a mesma URL gera sempre a mesma frota. */
+function seededRandom(seed: number): () => number {
+  return () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+export function buildStressEquipment(count: number): Equipment[] {
+  const rand = seededRandom(count);
+  const types = [...new Set(SLOTS)];
+  // ~85% operacional, como numa frota real; o restante espalhado entre as demais situações.
+  const statuses: EquipmentStatus[] = ['malfunction', 'maintenance', 'stolen', 'deactivated', 'not_installed'];
+  const list: Equipment[] = [];
+
+  for (let i = 0; i < Math.min(count, MAX_STRESS_EQUIPMENT); i++) {
+    const hoodIdx = Math.floor(rand() * NEIGHBORHOODS.length);
+    const hood = NEIGHBORHOODS[hoodIdx];
+    const lanes = districtLanes(hoodIdx);
+    const lane = lanes[Math.floor(rand() * lanes.length)];
+    const [lat, lng] = lane.points[Math.floor(rand() * lane.points.length)];
+    const type = types[Math.floor(rand() * types.length)];
+    const [brand, model] = MODELS[type][Math.floor(rand() * MODELS[type].length)];
+    const status = rand() < 0.85 ? 'operational' : statuses[Math.floor(rand() * statuses.length)];
+
+    list.push({
+      id: `EQ-S${i + 1}`,
+      serialNumber: `${SERIAL_PREFIX[type]}-S${String(i + 1).padStart(4, '0')}`,
+      brand,
+      model,
+      agency: agencyFor(type, i % SLOTS.length),
+      type,
+      customProperties: seedCustomProperties(type, i),
+      location: {
+        cep: `${hood.cepPrefix}-${String(i % 1000).padStart(3, '0')}`,
+        neighborhood: hood.name,
+        cityUf: CITY_UF,
+        street: lane.street,
+        reference: hood.references[Math.floor(rand() * hood.references.length)],
+        lat,
+        lng,
+      },
+      status,
+      maintenance: {
+        priority: status === 'malfunction' || status === 'stolen' ? 'immediate' : 'scheduled',
+        nextDate: status === 'stolen' ? undefined : daysFromToday(Math.floor(rand() * 90) - 10),
+      },
+    } as Equipment);
+  }
+  return list;
 }

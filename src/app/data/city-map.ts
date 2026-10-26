@@ -383,3 +383,65 @@ export function districtSpots(districtIndex: number, count: number): RoadSpot[] 
   SPOT_CACHE.set(districtIndex, spots);
   return spots;
 }
+
+// -----------------------------------------------------------------------------
+// Trechos de via por bairro (deslocamento da telemetria e teste de carga)
+// -----------------------------------------------------------------------------
+
+export interface Lane {
+  street: string;
+  points: LatLng[];
+}
+
+const LANE_CACHE = new Map<number, Lane[]>();
+
+/** Trechos contínuos de cada via dentro do bairro, amostrados a cada ~35 m. */
+export function districtLanes(districtIndex: number): Lane[] {
+  const cached = LANE_CACHE.get(districtIndex);
+  if (cached) return cached;
+  const polygon = DISTRICT_POLYGONS_KM[districtIndex];
+  const lanes: Lane[] = [];
+  for (const road of ROADS_KM) {
+    let run: LatLng[] = [];
+    for (const s of sampleRoad(road, 0.035)) {
+      if (insidePolygon(s.p, polygon)) {
+        run.push(toLatLng(s.p));
+        continue;
+      }
+      if (run.length > 1) lanes.push({ street: road.name, points: run });
+      run = [];
+    }
+    if (run.length > 1) lanes.push({ street: road.name, points: run });
+  }
+  LANE_CACHE.set(districtIndex, lanes);
+  return lanes;
+}
+
+/**
+ * Avança `steps` amostras sobre a via mais próxima do ponto, no sentido `heading`.
+ * Ao chegar ao fim do trecho, inverte o sentido (o veículo faz o retorno).
+ */
+export function stepAlongRoad(
+  districtIndex: number,
+  lat: number,
+  lng: number,
+  heading: 1 | -1,
+  steps = 1
+): { lat: number; lng: number; street: string; heading: 1 | -1 } | null {
+  let best: { lane: Lane; index: number; d: number } | null = null;
+  for (const lane of districtLanes(districtIndex)) {
+    lane.points.forEach(([pLat, pLng], index) => {
+      const d = (pLat - lat) ** 2 + ((pLng - lng) * KM_PER_DEG_LNG / KM_PER_DEG_LAT) ** 2;
+      if (!best || d < best.d) best = { lane, index, d };
+    });
+  }
+  if (!best) return null;
+  const { lane, index } = best as { lane: Lane; index: number };
+  let next = index + heading * steps;
+  if (next < 0 || next >= lane.points.length) {
+    heading = heading === 1 ? -1 : 1;
+    next = Math.min(lane.points.length - 1, Math.max(0, index + heading * steps));
+  }
+  const [nLat, nLng] = lane.points[next];
+  return { lat: nLat, lng: nLng, street: lane.street, heading };
+}

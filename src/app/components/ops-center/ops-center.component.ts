@@ -422,6 +422,9 @@ export class OpsCenterComponent implements AfterViewInit, OnDestroy {
   private districtLayer: Leaflet.LayerGroup | null = null;
   private cityBounds: Leaflet.LatLngBounds | null = null;
   private readonly mapReady = signal(false);
+  private readonly markers = new Map<string, { marker: Leaflet.Marker; iconKey: string; tooltip: string }>();
+  private readonly iconCache = new Map<string, Leaflet.DivIcon>();
+  private readonly districtPolygons = new Map<string, Leaflet.Polygon>();
 
   constructor() {
     effect(() => {
@@ -493,6 +496,8 @@ export class OpsCenterComponent implements AfterViewInit, OnDestroy {
   ngOnDestroy(): void {
     this.map?.remove();
     this.map = null;
+    this.markers.clear();
+    this.districtPolygons.clear();
   }
 
   setFilter(key: keyof OpsFilters, value: string): void {
@@ -585,63 +590,120 @@ export class OpsCenterComponent implements AfterViewInit, OnDestroy {
     }
   }
 
+  /**
+   * Atualização incremental: cada marcador é criado uma vez e depois só move ou troca de ícone
+   * quando posição, situação ou seleção mudam. Ícones idênticos são compartilhados (cache).
+   */
   private render(equipment: Equipment[], agents: Agent[], regions: RegionSummary[], selectedId: string | null): void {
     const L = this.L;
-    if (!L || !this.layer) return;
-    this.layer.clearLayers();
+    if (!L || !this.layer || !this.districtLayer) return;
 
-    // Coroplético: cada bairro pintado conforme a saúde operacional.
-    this.districtLayer?.clearLayers();
-    for (const r of regions) {
-      const district = NEIGHBORHOODS.find((n) => n.name === r.neighborhood);
-      if (!district) continue;
-      L.polygon(district.polygon, {
-        pane: 'districts',
-        color: HEALTH_COLORS[r.health],
-        weight: 1.5,
-        opacity: 0.55,
-        fillColor: HEALTH_COLORS[r.health],
-        fillOpacity: 0.1,
-        interactive: false,
-      }).addTo(this.districtLayer!);
+    // Coroplético: um polígono fixo por bairro; só o estilo muda com a saúde operacional.
+    const visibleHoods = new Set(regions.map((r) => r.neighborhood));
+    for (const district of NEIGHBORHOODS) {
+      const region = regions.find((r) => r.neighborhood === district.name);
+      let polygon = this.districtPolygons.get(district.name);
+      if (!polygon) {
+        polygon = L.polygon(district.polygon, { pane: 'districts', weight: 1.5, opacity: 0.55, fillOpacity: 0.1, interactive: false });
+        this.districtPolygons.set(district.name, polygon);
+      }
+      if (region && visibleHoods.has(district.name)) {
+        polygon.setStyle({ color: HEALTH_COLORS[region.health], fillColor: HEALTH_COLORS[region.health] });
+        if (!this.districtLayer.hasLayer(polygon)) polygon.addTo(this.districtLayer);
+      } else {
+        this.districtLayer.removeLayer(polygon);
+      }
     }
 
+    const seen = new Set<string>();
     for (const e of equipment) {
-      const color = STATUS_COLORS[e.status];
+      const key = `e:${e.id}`;
+      seen.add(key);
       const selected = e.id === selectedId;
-      const size = selected ? 40 : 30;
-      L.marker([e.location.lat, e.location.lng], {
-        zIndexOffset: selected ? 1000 : 0,
-        icon: L.divIcon({
-          className: '',
-          iconSize: [size, size],
-          iconAnchor: [size / 2, size / 2],
-          html: `<div style="width:${size}px;height:${size}px;border-radius:9999px;background:#101517;border:${selected ? 4 : 2.5}px solid ${color};display:flex;align-items:center;justify-content:center;border-style:${statusBorder(e.status)};${selected ? 'box-shadow:0 0 0 4px rgba(255,122,61,.45);' : ''}">${glyph(e.type, color)}</div>`,
-        }),
-      })
-        .bindTooltip(`${TYPE_LABELS[e.type]} · ${STATUS_LABELS[e.status]}`, { direction: 'top' })
-        .on('click', () => this.city.selection.set({ kind: 'equipment', id: e.id }))
-        .addTo(this.layer);
+      this.syncMarker(L, key, e.location.lat, e.location.lng, `eq|${e.type}|${e.status}|${selected}`, selected ? 1000 : 0,
+        () => equipmentIcon(e.type, e.status, selected),
+        `${TYPE_LABELS[e.type]} · ${STATUS_LABELS[e.status]}`,
+        { kind: 'equipment', id: e.id });
     }
 
     for (const a of agents) {
-      const color = AGENT_STATUS_COLORS[a.status];
+      const key = `a:${a.id}`;
+      seen.add(key);
       const selected = a.id === selectedId;
-      const abbr = a.role === 'military_police' ? 'PM' : a.role === 'municipal_guard' ? 'GM' : 'AT';
-      L.marker([a.lat, a.lng], {
-        zIndexOffset: selected ? 1000 : 500,
-        icon: L.divIcon({
-          className: '',
-          iconSize: [26, 26],
-          iconAnchor: [13, 13],
-          html: `<div style="width:26px;height:26px;border-radius:5px;background:${color};border:2px solid ${selected ? '#ff7a3d' : '#101517'};color:#101517;font:700 10px/22px sans-serif;text-align:center;">${abbr}</div>`,
-        }),
-      })
-        .bindTooltip(`${escapeHtml(a.name)} · ${AGENT_STATUS_LABELS[a.status]}`, { direction: 'top' })
-        .on('click', () => this.city.selection.set({ kind: 'agent', id: a.id }))
-        .addTo(this.layer);
+      this.syncMarker(L, key, a.lat, a.lng, `ag|${a.role}|${a.status}|${selected}`, selected ? 1000 : 500,
+        () => agentIcon(a.role, a.status, selected),
+        `${escapeHtml(a.name)} · ${AGENT_STATUS_LABELS[a.status]}`,
+        { kind: 'agent', id: a.id });
+    }
+
+    // Remove o que saiu do filtro ou foi excluído.
+    for (const [key, entry] of this.markers) {
+      if (seen.has(key)) continue;
+      this.layer.removeLayer(entry.marker);
+      this.markers.delete(key);
     }
   }
+
+  private syncMarker(
+    L: typeof Leaflet,
+    key: string,
+    lat: number,
+    lng: number,
+    iconKey: string,
+    zIndex: number,
+    buildIcon: () => { html: string; size: number },
+    tooltip: string,
+    target: { kind: 'equipment' | 'agent'; id: string }
+  ): void {
+    const icon = () => {
+      let cached = this.iconCache.get(iconKey);
+      if (!cached) {
+        const { html, size } = buildIcon();
+        cached = L.divIcon({ className: '', iconSize: [size, size], iconAnchor: [size / 2, size / 2], html });
+        this.iconCache.set(iconKey, cached);
+      }
+      return cached;
+    };
+
+    const entry = this.markers.get(key);
+    if (!entry) {
+      const marker = L.marker([lat, lng], { icon: icon(), zIndexOffset: zIndex })
+        .bindTooltip(tooltip, { direction: 'top' })
+        .on('click', () => this.city.selection.set(target))
+        .addTo(this.layer!);
+      this.markers.set(key, { marker, iconKey, tooltip });
+      return;
+    }
+
+    const pos = entry.marker.getLatLng();
+    if (pos.lat !== lat || pos.lng !== lng) entry.marker.setLatLng([lat, lng]);
+    if (entry.iconKey !== iconKey) {
+      entry.marker.setIcon(icon());
+      entry.marker.setZIndexOffset(zIndex);
+      entry.iconKey = iconKey;
+    }
+    if (entry.tooltip !== tooltip) {
+      entry.marker.setTooltipContent(tooltip);
+      entry.tooltip = tooltip;
+    }
+  }
+}
+
+function equipmentIcon(type: EquipmentType, status: EquipmentStatus, selected: boolean): { html: string; size: number } {
+  const color = STATUS_COLORS[status];
+  const size = selected ? 40 : 30;
+  return {
+    size,
+    html: `<div style="width:${size}px;height:${size}px;border-radius:9999px;background:#101517;border:${selected ? 4 : 2.5}px solid ${color};display:flex;align-items:center;justify-content:center;border-style:${statusBorder(status)};${selected ? 'box-shadow:0 0 0 4px rgba(255,122,61,.45);' : ''}">${glyph(type, color)}</div>`,
+  };
+}
+
+function agentIcon(role: Agent['role'], status: AgentStatus, selected: boolean): { html: string; size: number } {
+  const abbr = role === 'military_police' ? 'PM' : role === 'municipal_guard' ? 'GM' : 'AT';
+  return {
+    size: 26,
+    html: `<div style="width:26px;height:26px;border-radius:5px;background:${AGENT_STATUS_COLORS[status]};border:2px solid ${selected ? '#ff7a3d' : '#101517'};color:#101517;font:700 10px/22px sans-serif;text-align:center;">${abbr}</div>`,
+  };
 }
 
 /** Furtado = tracejado, não instalado = pontilhado: reforça a cor para quem não distingue tons. */
