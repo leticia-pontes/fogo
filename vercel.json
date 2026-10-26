@@ -4,13 +4,8 @@
   "outputDirectory": "dist/fogo-nexus/browser",
   "rewrites": [
     {
-      "source": "/api/(.*)",
-      "destination": "/api/$1"
-    },
-    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
   ]
 }
-

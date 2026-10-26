@@ -77,7 +77,7 @@ import { ActiveModuleTab, UiStateService } from './services/ui-state.service';
                     ? 'border-fogo-ember bg-fogo-ember/15 text-fogo-ember animate-pulse'
                     : 'border-fogo-border bg-fogo-panel text-fogo-sand hover:border-fogo-ember'"
                 >
-                  🎯 Simular Cenários (Homologação)
+                  Simular Cenários (Homologação)
                 </button>
                 @if (scenarioMenu()) {
                   <div class="fixed inset-0 z-[1101]" (click)="scenarioMenu.set(false)" aria-hidden="true"></div>

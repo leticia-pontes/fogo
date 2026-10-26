@@ -63,6 +63,7 @@ const MODELS: Record<EquipmentType, [string, string][]> = {
   scooter: [['Segway-Ninebot', 'Max G30'], ['Tembici', 'E-Fit 5G']],
   agent_moto: [['Honda', 'XRE 300 Operacional'], ['Yamaha', 'Lander 250 Operacional']],
   patrol_car: [['Chevrolet', 'Trailblazer VTR'], ['Toyota', 'Hilux SW4 VTR']],
+  other: [['Sinalvida', 'Painel PMV-200'], ['Digicon', 'Sensor Ambiental SA-10']],
 };
 
 const SERIAL_PREFIX: Record<EquipmentType, string> = {
@@ -76,6 +77,7 @@ const SERIAL_PREFIX: Record<EquipmentType, string> = {
   scooter: 'PAT',
   agent_moto: 'MOT',
   patrol_car: 'VTR',
+  other: 'OUT',
 };
 
 /** Cenário inicial: Entroncamento concentra falhas, lote Hikvision degradando, Orla do Rio com furto. */
@@ -137,6 +139,8 @@ function seedCustomProperties(type: EquipmentType, seed: number): CustomProperti
       return { plate, callsign: `MOTO-${200 + seed}` };
     case 'patrol_car':
       return { plate, callsign: `VTR-${100 + seed}`, lprCameras: 2 + (seed % 3) };
+    case 'other':
+      return { description: seed % 2 === 0 ? 'Painel de mensagem variável' : 'Sensor de qualidade do ar' };
   }
 }
 

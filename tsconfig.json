@@ -14,16 +14,11 @@
     "moduleResolution": "bundler",
     "importHelpers": true,
     "target": "ES2022",
-    "module": "ES2022",
-    "paths": {
-      "@ai-sdk/google": ["./node_modules/@ai-sdk/google/dist/index.d.ts"],
-      "ai": ["./node_modules/ai/dist/index.d.ts"]
-    }
+    "module": "ES2022"
   },
   "include": [
     "src/**/*.d.ts",
-    "src/**/*.ts",
-    "api/**/*.ts"
+    "src/**/*.ts"
   ],
   "angularCompilerOptions": {
     "enableI18nLegacyMessageIdFormat": false,

@@ -2,6 +2,7 @@ import { Injectable, PLATFORM_ID, computed, effect, inject, signal } from '@angu
 import { isPlatformBrowser } from '@angular/common';
 import {
   NEIGHBORHOODS,
+  NEIGHBORHOOD_HISTORY,
   buildMockAgents,
   buildMockEquipment,
   daysFromToday,
@@ -124,10 +125,28 @@ export class CityStateService {
       reasons.sort((a, b) => rank[a.severity] - rank[b.severity]);
       alerts.push({
         id: `AL-${e.id}`,
-        equipmentId: e.id,
+        target: { kind: 'equipment', id: e.id },
         severity: reasons[0].severity,
         title: `${reasons[0].text} · ${e.serialNumber}`,
         detail: [...reasons.slice(1).map((r) => r.text), `${e.location.street} (${e.location.reference}), ${e.location.neighborhood}`].join(' · '),
+      });
+    }
+
+    // Agente fora de turno em bairro cujo efetivo em serviço não cobre o necessário no pico.
+    const onDuty = new Map<string, number>();
+    for (const a of this.agents()) {
+      if (a.status !== 'off_duty') onDuty.set(a.neighborhood, (onDuty.get(a.neighborhood) ?? 0) + 1);
+    }
+    for (const a of this.filteredAgents()) {
+      const required = NEIGHBORHOOD_HISTORY[a.neighborhood]?.requiredAgentsAtPeak ?? 0;
+      const present = onDuty.get(a.neighborhood) ?? 0;
+      if (a.status !== 'off_duty' || present >= required) continue;
+      alerts.push({
+        id: `AL-${a.id}`,
+        target: { kind: 'agent', id: a.id },
+        severity: 'warning',
+        title: `Agente sem atividade em bairro com déficit · ${a.name}`,
+        detail: `${a.badgeNumber} · ${a.neighborhood}: ${present} em serviço para ${required} necessários no pico`,
       });
     }
 

@@ -11,6 +11,7 @@ import {
   untracked,
 } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
+import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import type * as Leaflet from 'leaflet';
 import { CITY_MAP } from '../../data/city-map';
 import { NEIGHBORHOODS } from '../../data/mock-data';
@@ -146,18 +147,59 @@ const SELECT_CLASS =
       <div class="grid grid-cols-1 xl:grid-cols-12 gap-4">
         <div class="xl:col-span-8 relative rounded-xl border border-fogo-border overflow-hidden h-[460px] xl:h-[580px]">
           <div #mapEl class="absolute inset-0 z-0"></div>
-          <div class="absolute bottom-3 left-3 z-[400] bg-fogo-panel/95 border border-fogo-border rounded-lg px-3 py-2 text-[12px] text-fogo-sand space-y-1 pointer-events-none">
-            <div class="flex flex-wrap gap-x-3 gap-y-1">
-              <span class="flex items-center gap-1.5"><i class="dot" style="background:#4ca975"></i>Operacional</span>
-              <span class="flex items-center gap-1.5"><i class="dot" style="background:#d99b38"></i>Manutenção</span>
-              <span class="flex items-center gap-1.5"><i class="dot" style="background:#d9534f"></i>Falha / furto</span>
-              <span class="flex items-center gap-1.5"><i class="dot" style="background:#6c767a"></i>Não instalado / desativado</span>
-            </div>
-            <div class="flex flex-wrap gap-x-3 gap-y-1 text-fogo-muted">
-              <span>● círculo = equipamento</span>
-              <span>■ quadrado = agente (AT / GM / PM)</span>
-              <span>cor do bairro = saúde operacional</span>
-            </div>
+          <div class="absolute bottom-3 left-3 z-[400] max-w-[calc(100%-1.5rem)] bg-fogo-panel/95 border border-fogo-border rounded-lg text-[12px] text-fogo-sand">
+            <button
+              type="button"
+              (click)="legendOpen.set(!legendOpen())"
+              [attr.aria-expanded]="legendOpen()"
+              class="w-full flex items-center justify-between gap-3 px-3 py-1.5 font-semibold cursor-pointer"
+            >
+              <span>Legenda</span>
+              <span class="text-fogo-muted">{{ legendOpen() ? '▾' : '▸' }}</span>
+            </button>
+            @if (legendOpen()) {
+              <div class="px-3 pb-2 space-y-2 max-h-[300px] overflow-y-auto">
+                <div>
+                  <p class="text-fogo-muted mb-1">Situação do equipamento (clique para filtrar)</p>
+                  <div class="grid grid-cols-2 gap-x-3 gap-y-1">
+                    @for (s of statuses; track s) {
+                      <button
+                        type="button"
+                        (click)="toggleFilter('status', s)"
+                        class="flex items-center gap-1.5 text-left cursor-pointer hover:text-fogo-ember"
+                        [class.text-fogo-ember]="city.filters().status === s"
+                      >
+                        <i class="legend-ring" [style.border-color]="statusColors[s]" [style.border-style]="statusBorder(s)"></i>{{ statusLabels[s] }}
+                      </button>
+                    }
+                  </div>
+                </div>
+                <div>
+                  <p class="text-fogo-muted mb-1">Tipo (clique para filtrar)</p>
+                  <div class="grid grid-cols-2 gap-x-3 gap-y-1">
+                    @for (t of types; track t) {
+                      <button
+                        type="button"
+                        (click)="toggleFilter('type', t)"
+                        class="flex items-center gap-1.5 text-left cursor-pointer hover:text-fogo-ember"
+                        [class.text-fogo-ember]="city.filters().type === t"
+                      >
+                        <span class="shrink-0 flex" [innerHTML]="typeGlyphs[t]"></span>{{ typeLabels[t] }}
+                      </button>
+                    }
+                  </div>
+                </div>
+                <div>
+                  <p class="text-fogo-muted mb-1">Agentes (AT = trânsito · GM = guarda · PM = polícia)</p>
+                  <div class="flex flex-wrap gap-x-3 gap-y-1">
+                    @for (s of agentStatuses; track s) {
+                      <span class="flex items-center gap-1.5"><i class="legend-square" [style.background]="agentStatusColors[s]"></i>{{ agentStatusLabels[s] }}</span>
+                    }
+                  </div>
+                </div>
+                <p class="text-fogo-muted">Cor do bairro = saúde operacional (verde, âmbar, vermelho)</p>
+              </div>
+            }
           </div>
         </div>
 
@@ -251,7 +293,7 @@ const SELECT_CLASS =
               @for (alert of city.alerts(); track alert.id) {
                 <button
                   type="button"
-                  (click)="city.selection.set({ kind: 'equipment', id: alert.equipmentId })"
+                  (click)="city.selection.set(alert.target)"
                   class="w-full text-left rounded-lg border p-3 bg-fogo-bg hover:border-fogo-ember cursor-pointer"
                   [class]="alert.severity === 'critical' ? 'border-fogo-red/60' : alert.severity === 'high' ? 'border-fogo-amber/60' : 'border-fogo-border'"
                 >
@@ -259,7 +301,7 @@ const SELECT_CLASS =
                     class="text-[12px] font-semibold uppercase tracking-wide"
                     [class]="alert.severity === 'critical' ? 'text-fogo-red' : alert.severity === 'high' ? 'text-fogo-amber' : 'text-fogo-muted'"
                   >
-                    {{ alert.severity === 'critical' ? 'Crítico' : alert.severity === 'high' ? 'Alta' : 'Preventiva' }}
+                    {{ alert.severity === 'critical' ? 'Crítico' : alert.severity === 'high' ? 'Alta' : 'Preventiva' }}{{ alert.target.kind === 'agent' ? ' · Agente' : '' }}
                   </span>
                   <p class="text-sm font-medium mt-0.5">{{ alert.title }}</p>
                   <p class="text-xs text-fogo-muted mt-0.5">{{ alert.detail }}</p>
@@ -337,6 +379,8 @@ const SELECT_CLASS =
     .kpi-value { @apply text-2xl font-semibold font-mono mt-0.5; }
     .kpi-sub { @apply text-[12px] text-fogo-muted mt-0.5; }
     .dot { @apply inline-block w-2.5 h-2.5 rounded-full shrink-0; }
+    .legend-ring { @apply inline-block w-3 h-3 rounded-full shrink-0 border-2; }
+    .legend-square { @apply inline-block w-3 h-3 rounded-[3px] shrink-0; }
     .detail-grid { @apply grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm; }
     .detail-grid dt { @apply text-fogo-muted; }
     .btn-secondary { @apply py-2 px-3 rounded-lg bg-fogo-bg border border-fogo-border text-sm hover:border-fogo-ember cursor-pointer; }
@@ -363,6 +407,12 @@ export class OpsCenterComponent implements AfterViewInit, OnDestroy {
   readonly priorityLabels = PRIORITY_LABELS;
   readonly roleLabels = ROLE_LABELS;
   readonly agentStatusLabels = AGENT_STATUS_LABELS;
+  readonly agentStatusColors = AGENT_STATUS_COLORS;
+  readonly legendOpen = signal(true);
+  /** SVGs estáticos gerados localmente por glyph(), seguros para innerHTML. */
+  readonly typeGlyphs = Object.fromEntries(
+    EQUIPMENT_TYPES.map((t) => [t, inject(DomSanitizer).bypassSecurityTrustHtml(glyph(t, '#e9e4d8'))])
+  ) as Record<EquipmentType, SafeHtml>;
   readonly healthLabels = HEALTH_LABELS;
   readonly healthColors = HEALTH_COLORS;
 
@@ -447,6 +497,15 @@ export class OpsCenterComponent implements AfterViewInit, OnDestroy {
 
   setFilter(key: keyof OpsFilters, value: string): void {
     this.city.filters.update((f) => ({ ...f, [key]: value }));
+  }
+
+  /** Clique na legenda: aplica o filtro ou, se já ativo, volta para "todos". */
+  toggleFilter(key: 'type' | 'status', value: string): void {
+    this.setFilter(key, this.city.filters()[key] === value ? 'all' : value);
+  }
+
+  statusBorder(status: EquipmentStatus): string {
+    return statusBorder(status);
   }
 
   setEquipmentStatus(id: string, value: string): void {
@@ -557,7 +616,7 @@ export class OpsCenterComponent implements AfterViewInit, OnDestroy {
           className: '',
           iconSize: [size, size],
           iconAnchor: [size / 2, size / 2],
-          html: `<div style="width:${size}px;height:${size}px;border-radius:9999px;background:#101517;border:${selected ? 4 : 2.5}px solid ${color};display:flex;align-items:center;justify-content:center;${e.status === 'stolen' ? 'border-style:dashed;' : ''}${selected ? 'box-shadow:0 0 0 4px rgba(255,122,61,.45);' : ''}">${glyph(e.type, color)}</div>`,
+          html: `<div style="width:${size}px;height:${size}px;border-radius:9999px;background:#101517;border:${selected ? 4 : 2.5}px solid ${color};display:flex;align-items:center;justify-content:center;border-style:${statusBorder(e.status)};${selected ? 'box-shadow:0 0 0 4px rgba(255,122,61,.45);' : ''}">${glyph(e.type, color)}</div>`,
         }),
       })
         .bindTooltip(`${TYPE_LABELS[e.type]} · ${STATUS_LABELS[e.status]}`, { direction: 'top' })
@@ -585,6 +644,11 @@ export class OpsCenterComponent implements AfterViewInit, OnDestroy {
   }
 }
 
+/** Furtado = tracejado, não instalado = pontilhado: reforça a cor para quem não distingue tons. */
+function statusBorder(status: EquipmentStatus): string {
+  return status === 'stolen' ? 'dashed' : status === 'not_installed' ? 'dotted' : 'solid';
+}
+
 function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 }
@@ -601,6 +665,7 @@ function glyph(type: EquipmentType, stroke: string): string {
     scooter: '<circle cx="6" cy="17" r="3"/><circle cx="18" cy="17" r="3"/><path d="M6 17l5-8h4l3 8"/>',
     agent_moto: '<circle cx="5" cy="17" r="3"/><circle cx="19" cy="17" r="3"/><path d="M5 17h6l3-6h3l2 6M12 7h3"/>',
     patrol_car: '<path d="M12 2l7 4v6c0 5-3.5 9-7 10-3.5-1-7-5-7-10V6z"/>',
+    other: '<path d="M12 2l8.5 5v10L12 22l-8.5-5V7z"/><circle cx="12" cy="12" r="1.5"/>',
   };
   return `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="${stroke}" stroke-width="2">${paths[type]}</svg>`;
 }

@@ -8,7 +8,8 @@ export type EquipmentType =
   | 'parking_totem'
   | 'scooter'
   | 'agent_moto'
-  | 'patrol_car';
+  | 'patrol_car'
+  | 'other';
 
 export type EquipmentStatus =
   | 'not_installed'
@@ -49,6 +50,7 @@ export interface CustomPropertiesByType {
   scooter: { vehicleKind: 'scooter' | 'e_bike'; batteryPct: number };
   agent_moto: { plate: string; callsign: string };
   patrol_car: { plate: string; callsign: string; lprCameras: number };
+  other: { description: string };
 }
 
 interface EquipmentBase {
@@ -121,7 +123,8 @@ export type AlertSeverity = 'critical' | 'high' | 'warning';
 
 export interface OpsAlert {
   id: string;
-  equipmentId: string;
+  /** Item que gerou o alerta (aberto no painel ao clicar). */
+  target: { kind: 'equipment' | 'agent'; id: string };
   severity: AlertSeverity;
   title: string;
   detail: string;

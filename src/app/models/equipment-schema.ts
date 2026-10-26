@@ -20,6 +20,7 @@ export const EQUIPMENT_TYPES: EquipmentType[] = [
   'scooter',
   'agent_moto',
   'patrol_car',
+  'other',
 ];
 
 export const EQUIPMENT_STATUSES: EquipmentStatus[] = [
@@ -42,6 +43,7 @@ export const TYPE_LABELS: Record<EquipmentType, string> = {
   scooter: 'Patinete / bicicleta elétrica',
   agent_moto: 'Moto operacional',
   patrol_car: 'Viatura',
+  other: 'Outro equipamento',
 };
 
 export const STATUS_LABELS: Record<EquipmentStatus, string> = {
@@ -53,14 +55,14 @@ export const STATUS_LABELS: Record<EquipmentStatus, string> = {
   not_installed: 'Não instalado',
 };
 
-/** Cores semânticas: verde = ok, amarelo = manutenção, vermelho = falha/furto, cinza = fora de operação. */
+/** Cores semânticas: verde = ok, amarelo = manutenção, vermelho = falha, roxo = furto, cinzas = fora de operação. */
 export const STATUS_COLORS: Record<EquipmentStatus, string> = {
   operational: '#4ca975',
   maintenance: '#d99b38',
   malfunction: '#d9534f',
-  stolen: '#d9534f',
+  stolen: '#a97bd8',
   deactivated: '#6c767a',
-  not_installed: '#6c767a',
+  not_installed: '#a9b1b4',
 };
 
 export const PRIORITY_LABELS: Record<MaintenancePriority, string> = {
@@ -90,7 +92,7 @@ export const AGENT_STATUS_LABELS: Record<AgentStatus, string> = {
 export const AGENT_STATUS_COLORS: Record<AgentStatus, string> = {
   active: '#4a90c2',
   in_dispatch: '#ff7a3d',
-  off_duty: '#6c767a',
+  off_duty: '#5b7686',
 };
 
 export const HEALTH_LABELS: Record<RegionHealth, string> = {
@@ -210,6 +212,7 @@ export const CUSTOM_FIELDS: Record<EquipmentType, CustomFieldDef[]> = {
     { key: 'callsign', label: 'Prefixo', kind: 'text' },
     { key: 'lprCameras', label: 'Câmeras LPR embarcadas', kind: 'number' },
   ],
+  other: [{ key: 'description', label: 'Descrição do equipamento', kind: 'text' }],
 };
 
 export function defaultCustomProperties<T extends EquipmentType>(type: T): CustomPropertiesByType[T] {
@@ -224,6 +227,7 @@ export function defaultCustomProperties<T extends EquipmentType>(type: T): Custo
     scooter: { vehicleKind: 'scooter', batteryPct: 100 },
     agent_moto: { plate: '', callsign: '' },
     patrol_car: { plate: '', callsign: '', lprCameras: 0 },
+    other: { description: '' },
   };
   return defaults[type];
 }

@@ -34,6 +34,7 @@ import {
 } from '../../models/fogo.models';
 import { CityStateService } from '../../services/city-state.service';
 import { UiStateService } from '../../services/ui-state.service';
+import { CITY_MAP, CITY_NAME } from '../../data/city-map';
 
 type CustomValue = string | number | boolean | null;
 
@@ -54,6 +55,14 @@ interface EquipmentDraft {
 interface AgentDraft extends Omit<Agent, 'id'> {
   id: string | null;
 }
+
+/** Retângulo envolvente do contorno da cidade, usado para validar coordenadas. */
+const CITY_BOUNDS = {
+  minLat: Math.min(...CITY_MAP.outline.map(([lat]) => lat)),
+  maxLat: Math.max(...CITY_MAP.outline.map(([lat]) => lat)),
+  minLng: Math.min(...CITY_MAP.outline.map(([, lng]) => lng)),
+  maxLng: Math.max(...CITY_MAP.outline.map(([, lng]) => lng)),
+};
 
 const INPUT_CLASS =
   'w-full py-2 px-2.5 bg-fogo-bg border border-fogo-border focus:border-fogo-ember rounded-lg text-sm text-fogo-sand outline-none';
@@ -340,12 +349,15 @@ function jitter(): number {
                   </label>
                   <label class="field">
                     <span>Latitude *</span>
-                    <input type="number" step="0.0001" name="lat" [class]="inputClass" [(ngModel)]="d.location.lat" required />
+                    <input type="number" step="0.0001" min="-90" max="90" name="lat" [class]="inputClass" [(ngModel)]="d.location.lat" required />
                   </label>
                   <label class="field">
                     <span>Longitude *</span>
-                    <input type="number" step="0.0001" name="lng" [class]="inputClass" [(ngModel)]="d.location.lng" required />
+                    <input type="number" step="0.0001" min="-180" max="180" name="lng" [class]="inputClass" [(ngModel)]="d.location.lng" required />
                   </label>
+                  @if (coordError(d.location.lat, d.location.lng); as err) {
+                    <small class="col-span-2 text-fogo-red">{{ err }}</small>
+                  }
                 </fieldset>
 
                 <fieldset class="grid grid-cols-2 gap-3">
@@ -375,7 +387,7 @@ function jitter(): number {
 
               <footer class="p-4 border-t border-fogo-border flex justify-end gap-2">
                 <button type="button" (click)="closeDrawer()" class="btn-ghost">Cancelar</button>
-                <button type="submit" class="btn-primary disabled:opacity-40 disabled:cursor-not-allowed" [disabled]="f.invalid || serialConflict()">Salvar</button>
+                <button type="submit" class="btn-primary disabled:opacity-40 disabled:cursor-not-allowed" [disabled]="f.invalid || serialConflict() || !!coordError(d.location.lat, d.location.lng)">Salvar</button>
               </footer>
             </form>
           } @else if (agentDraft; as a) {
@@ -406,6 +418,9 @@ function jitter(): number {
                 <label class="field">
                   <span>Matrícula *</span>
                   <input name="badgeNumber" [class]="inputClass" [(ngModel)]="a.badgeNumber" required />
+                  @if (badgeConflict()) {
+                    <small class="text-fogo-red">Já existe um agente com esta matrícula.</small>
+                  }
                 </label>
                 <label class="field">
                   <span>Função</span>
@@ -441,16 +456,19 @@ function jitter(): number {
                 </label>
                 <label class="field">
                   <span>Latitude *</span>
-                  <input type="number" step="0.0001" name="agentLat" [class]="inputClass" [(ngModel)]="a.lat" required />
+                  <input type="number" step="0.0001" min="-90" max="90" name="agentLat" [class]="inputClass" [(ngModel)]="a.lat" required />
                 </label>
                 <label class="field">
                   <span>Longitude *</span>
-                  <input type="number" step="0.0001" name="agentLng" [class]="inputClass" [(ngModel)]="a.lng" required />
+                  <input type="number" step="0.0001" min="-180" max="180" name="agentLng" [class]="inputClass" [(ngModel)]="a.lng" required />
                 </label>
+                @if (coordError(a.lat, a.lng); as err) {
+                  <small class="col-span-2 text-fogo-red">{{ err }}</small>
+                }
               </div>
               <footer class="p-4 border-t border-fogo-border flex justify-end gap-2">
                 <button type="button" (click)="closeDrawer()" class="btn-ghost">Cancelar</button>
-                <button type="submit" class="btn-primary disabled:opacity-40 disabled:cursor-not-allowed" [disabled]="g.invalid">Salvar</button>
+                <button type="submit" class="btn-primary disabled:opacity-40 disabled:cursor-not-allowed" [disabled]="g.invalid || badgeConflict() || !!coordError(a.lat, a.lng)">Salvar</button>
               </footer>
             </form>
           }
@@ -660,9 +678,31 @@ export class InventoryComponent implements OnInit {
     return !!serial && this.city.equipment().some((e) => e.id !== d.id && e.serialNumber.toLowerCase() === serial);
   }
 
+  /** Coordenadas precisam ser válidas e cair dentro do contorno da cidade. */
+  coordError(lat: unknown, lng: unknown): string | null {
+    if (lat === null || lat === '' || lng === null || lng === '') return null; // `required` já cobre
+    const la = Number(lat);
+    const ln = Number(lng);
+    if (!Number.isFinite(la) || !Number.isFinite(ln) || Math.abs(la) > 90 || Math.abs(ln) > 180) {
+      return 'Coordenadas inválidas: latitude entre -90 e 90, longitude entre -180 e 180.';
+    }
+    const b = CITY_BOUNDS;
+    if (la < b.minLat || la > b.maxLat || ln < b.minLng || ln > b.maxLng) {
+      return `Coordenadas fora de ${CITY_NAME}: lat ${b.minLat.toFixed(4)} a ${b.maxLat.toFixed(4)}, lng ${b.minLng.toFixed(4)} a ${b.maxLng.toFixed(4)}.`;
+    }
+    return null;
+  }
+
+  badgeConflict(): boolean {
+    const a = this.agentDraft;
+    if (!a) return false;
+    const badge = a.badgeNumber.trim().toLowerCase();
+    return !!badge && this.city.agents().some((x) => x.id !== a.id && x.badgeNumber.toLowerCase() === badge);
+  }
+
   saveEquipment(): void {
     const d = this.equipmentDraft;
-    if (!d || this.serialConflict()) return;
+    if (!d || this.serialConflict() || this.coordError(d.location.lat, d.location.lng)) return;
 
     const customProperties: Record<string, string | number | boolean> = {};
     for (const field of CUSTOM_FIELDS[d.type]) {
@@ -733,7 +773,7 @@ export class InventoryComponent implements OnInit {
 
   saveAgent(): void {
     const a = this.agentDraft;
-    if (!a) return;
+    if (!a || this.badgeConflict() || this.coordError(a.lat, a.lng)) return;
     this.city.upsertAgent({
       ...a,
       id: a.id ?? newId('AG'),
