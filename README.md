@@ -16,6 +16,7 @@ npm start               # API (porta 3000) + painel em http://localhost:4200
 npm run reset           # apaga o banco e recria com a seed de exemplo
 npm test                # testes do painel e das regras (ng test) + testes da API/SQLite
 npm run serve           # build de produção servido pela própria API em http://localhost:3000
+npm run gerar-manuais   # reindexa manuais/*.md (já roda sozinho antes de start, build e test)
 ```
 
 | Endereço | O que é |
@@ -52,6 +53,7 @@ Um dia típico do gestor em Nova Prometeia:
 4. **Testa decisões antes de tomá-las** no **Simulador**: "e se esta câmera cair?", "e se eu mover 3 agentes para a Orla?". Vê o ANTES × DEPOIS, as 3 próximas melhores ações e só então aplica, com auditoria.
 5. **Planeja o dia da equipe técnica** com a **Rota de manutenção**: as paradas críticas primeiro, depois as mais próximas.
 6. **Treina para o pior** com os **Cenários de crise** (apagão, onda de furtos, degradação, véspera de pico) e depois reverte tudo com um clique.
+7. **Resolve ocorrências do começo ao fim**: transforma um alerta em ocorrência, deixa a PROMETHEUS investigar (padrões, impacto e o que dizem os manuais), despacha o agente mais próximo, encerra e recebe um relatório pronto para arquivar.
 
 ## Obrigatório × diferencial
 
@@ -89,9 +91,11 @@ O enunciado avisa que *"não será sobre quem usou mais tecnologia, mais IA ou m
 | **Cenários de crise reversíveis** (apagão, furtos, degradação, véspera de pico) | A Parte 3 pede para *"agir antes que um problema aconteça"*. Para treinar a resposta é preciso provocar o problema, sem estragar os dados reais | O gestor (e quem avalia) vê em segundos como a cidade e as recomendações reagem a uma crise, e depois desfaz só o que o cenário mudou |
 | **Boletim da PROMETHEUS** + **agente de voz** | A Parte 2 pede para entender a situação *"rapidamente"*. Um gestor numa sala de controle nem sempre tem tempo de ler oito cards | O boletim resume em um parágrafo o que exige atenção agora e qual a próxima melhor ação, e pode ser ouvido. Usa templates com os números reais: nada é inventado, e o texto é sempre o mesmo para o mesmo estado |
 | **Mapa incremental + agrupamento** (até 5.000 equipamentos) | Desempenho é critério explícito de avaliação, e uma cidade real tem milhares de dispositivos, não 54 | Atualizar só o que mudou cortou o script por ciclo de 216 ms para 39 ms, e o agrupamento mantém o mapa legível com frota grande (ver [Teste de carga](#teste-de-carga)) |
+| **Fluxo de ocorrência** (alerta → investigação → despacho → encerramento → relatório) | A Parte 3 pede que a previsão vire *"algo realmente útil"* e que fique claro *"como essa previsão pode ajudar na tomada de decisão"*. Um alerta sozinho para no "furto detectado" | A PROMETHEUS cruza o alerta com o histórico, encontra padrões (lote, vizinhança, energia), mede o impacto, cita o manual que sustenta a decisão, sugere o agente mais próximo com o custo de tirá-lo do posto e fecha com um relatório que compara a cidade na abertura e agora. Percebeu, investigou, decidiu, resolveu e documentou ([detalhes](#ocorrências-do-alerta-ao-relatório)) |
+| **Manuais + regras, sem IA generativa** | O desafio valoriza *"explicabilidade"* e avisa que *"a tecnologia escolhida não será o mais importante"*. Uma recomendação operacional precisa dizer de onde veio | Busca por palavras-chave (BM25) em manuais e uma tabela de regras declarativa: cada decisão cita arquivo e seção, declara confiança e limitações, e dá sempre a mesma resposta para o mesmo caso. Sem chave de API, sem rede e sem alucinação |
 | **Missão guiada de 3 passos** | Experiência de uso é critério de avaliação, e a comissão vai testar *"tanta coisa"* | Em três passos, quem nunca viu o sistema descobre onde está cada parte. Quem já conhece pula direto para o modo livre |
 | **Modo offline** | Se a API não subir (ou num deploy estático), o painel não pode virar uma tela branca | Tudo funciona no navegador com as mesmas funções puras, só sem banco, histórico e auditoria |
-| **82 testes automatizados** | Qualidade técnica e *"demonstrar entendimento daquilo que a IA construiu"* | As regras (simulação, cobertura, rota, boletim, cenários), a API e a persistência são verificadas a cada `npm test`. As fórmulas não dependem de confiança, dependem de teste |
+| **134 testes automatizados** | Qualidade técnica e *"demonstrar entendimento daquilo que a IA construiu"* | As regras (simulação, cobertura, rota, boletim, cenários, ocorrências, manuais), a API e a persistência são verificadas a cada `npm test`. As fórmulas não dependem de confiança, dependem de teste |
 
 ## Tecnologias e por quê
 
@@ -147,6 +151,8 @@ Em `http://localhost:3000/api/docs`, com **Try it out**:
 
 Os mesmos comportamentos (cenário aplicado e revertido, simulação que não grava, validação, 409 por id repetido, auditoria) também são verificados automaticamente em `server/api.spec.ts` (`npm run test:server`).
 
+> **Segundo caso de uso, de ponta a ponta:** onda de furtos → ocorrência → investigação → despacho → encerramento → relatório. Está em [Ocorrências](#caso-de-uso-onda-de-furtos-do-alerta-ao-relatório).
+
 ### Outros recursos para explorar
 
 **clique numa rua** para cadastrar um equipamento ali; **Pontos cegos** e **Raios de cobertura** no canto do mapa; **Simular telemetria em tempo real** (começa desligada; um evento a cada 3 s, gravado no histórico); **agente de voz** ("quantos alertas?", "qual o maior risco?"); os outros cenários (onda de furtos, degradação na Zona Norte, véspera de pico na Zona Sul); e `?stress=2000` na URL para ver o mapa com uma frota enorme.
@@ -164,7 +170,7 @@ git archive -o fogo.zip HEAD   # só arquivos versionados, sem node_modules/dist
 **Por que SQLite:** é um arquivo único, sem servidor nem instalação, e o Node 22+ já traz o driver (`node:sqlite`), então não há dependência nativa para compilar.
 
 - **Criação automática:** ao subir, a API cria `data/fogo.db` com o esquema e a seed. Se o arquivo já existe, nada é repopulado. `FOGO_DB=/outro/caminho.db` muda o arquivo.
-- **Esquema** (`server/db.ts`): `equipamentos` (campos comuns em colunas + `propriedades` JSON validada por `json_valid` e pelo schema do tipo na API), `agentes`, `eventos_situacao` (histórico de telemetria/mudanças de situação), `alertas` (abertos/encerrados conforme o estado), `auditoria` (quem, quando, antes → depois), `cenarios_aplicados` (snapshot para reverter) e `estado_cidade`. Índices em tipo, situação e bairro.
+- **Esquema** (`server/db.ts`): `equipamentos` (campos comuns em colunas + `propriedades` JSON validada por `json_valid` e pelo schema do tipo na API), `agentes`, `eventos_situacao` (histórico de telemetria/mudanças de situação), `alertas` (abertos/encerrados conforme o estado), `auditoria` (quem, quando, antes → depois), `cenarios_aplicados` (snapshot para reverter), `ocorrencias` (status, snapshot da abertura, dossiê, despacho e encerramento, todos em JSON validado por `json_valid`) e `estado_cidade`. Índices em tipo, situação, bairro e, nas ocorrências, em status e equipamento.
 - **Repositório** (`server/repository.ts`): `listarEquipamentos()`, `listarAgentes()`, `salvarEquipamento()`, `salvarAgente()`, `registrarAuditoria()` e afins. A API só fala com o banco por ele; as regras de negócio (`src/app/core/`) recebem o estado lido e não sabem que o banco existe.
 - **Painel ↔ API:** o painel carrega `GET /api/estado` e envia em lote (`POST /api/sync`, a cada 250 ms de inatividade) só o que mudou: cadastros, mudanças de situação, telemetria e recomendações aplicadas. Cenários de crise e reset rodam no servidor. Sem servidor (ex.: deploy estático na Vercel), o cabeçalho mostra **Modo offline** e o estado fica no `localStorage`, como antes.
 
@@ -177,6 +183,11 @@ git archive -o fogo.zip HEAD   # só arquivos versionados, sem node_modules/dist
 | `POST /api/sync` | gravação em lote vinda do painel |
 | `POST /api/cenarios/:id`, `POST /api/cenarios/reverter` | aplica / reverte cenário de crise |
 | `POST /api/reset` | recria o banco com a seed |
+| `POST /api/ocorrencias`, `GET /api/ocorrencias?status=`, `GET /api/ocorrencias/:id` | abre (idempotente), lista e consulta ocorrências |
+| `GET /api/ocorrencias/:id/dossie` | investiga: grava o dossiê e passa para "investigada" |
+| `GET /api/ocorrencias/:id/despacho`, `POST /api/ocorrencias/:id/despachar` | sugere os agentes mais próximos (sem gravar) / despacha |
+| `POST /api/ocorrencias/:id/encerrar`, `GET /api/ocorrencias/:id/relatorio?formato=md` | encerra / relatório pós-ocorrência em Markdown |
+| `GET /api/manuais/busca?q=&tipo=&fabricante=` | busca nos manuais fictícios |
 | `GET /api/docs`, `GET /api/openapi.json` | Swagger UI e especificação OpenAPI |
 | `GET /api/alertas`, `GET /api/eventos`, `GET /api/auditoria` | alertas abertos, histórico de situação, auditoria |
 
@@ -204,6 +215,8 @@ server/
 ├── seed.ts, reset.ts, synthetic.ts
 ├── validation.ts               # Validação dos cadastros (inclui propriedades por tipo)
 └── api.spec.ts                 # Testes da API + persistência
+manuais/                        # Manuais FICTÍCIOS em Markdown (um por tipo + 3 transversais)
+scripts/gerar-manuais.mjs       # manuais/*.md → src/app/data/manuais.json (versionado, embutido no painel e na API)
 src/app/
 ├── core/                       # Regras puras (sem Angular, sem banco), usadas pelo painel e pela API
 │   ├── state.ts                # CityState: o estado que as funções recebem
@@ -213,6 +226,12 @@ src/app/
 │   ├── simulation.ts           # simular, aplicarAcao
 │   ├── recommendations.ts      # recomendarAcoes
 │   ├── maintenance-route.ts    # gerarRotaManutencao
+│   ├── occurrences.ts          # abrirOcorrencia (idempotente), montarSnapshot
+│   ├── manuals.ts              # recuperarTrechos (BM25), decidirComManual (regras)
+│   ├── investigation.ts        # investigarOcorrencia: dossiê com padrões, impacto e hipótese
+│   ├── batch.ts                # analisarLotes (usado pela previsão de lote e pela investigação)
+│   ├── dispatch.ts             # sugerirDespacho, despachar, devolverAgente
+│   ├── closure.ts              # encerrarOcorrencia, gerarRelatorio
 │   ├── bulletin.ts             # gerarBoletim
 │   └── scenarios.ts            # cenários de crise e reversão
 ├── models/
@@ -373,6 +392,88 @@ Card no topo da Central, logo abaixo dos KPIs: **Atualizar boletim**, **Copiar**
 
 Sem nada crítico, o texto diz "Tudo sob controle". **Não usa LLM**: o mesmo estado e horário geram sempre o mesmo texto e nenhum número é inventado. As primeiras versões chamavam o Gemini para um briefing tático; troquei por templates para não depender de chave, de rede nem arriscar números diferentes no meio da demonstração. A ironia continua, só que agora é determinística. Rota: `GET /api/boletim`.
 
+## Ocorrências: do alerta ao relatório
+
+Um alerta diz *"furto detectado"*. A ocorrência responde ao resto: **por quê, quanto custa, o que fazer, quem vai e como terminou**. Aba **Ocorrências** no painel lateral da Central.
+
+```
+alerta ──▶ abrir ──▶ investigar ──▶ despachar ──▶ encerrar ──▶ relatório
+          (aberta)   (investigada)  (despachada)  (encerrada)
+```
+
+Cada passo grava uma entrada na auditoria (quem, quando, antes → depois), e é dela que sai a linha do tempo do relatório. Tudo é calculado por **funções puras** em `src/app/core/`; a API e o painel offline chamam as mesmas.
+
+### Caso de uso: onda de furtos, do alerta ao relatório
+
+Partindo de `npm run reset` e `npm start`. Os valores são os da seed padrão (horários e datas variam).
+
+| # | Passo | Resultado esperado |
+| --- | --- | --- |
+| 1 | **Simular Cenários → Onda de Furto e Vandalismo** | Faixa vermelha; 2 câmeras e 1 totem furtados no Entroncamento |
+| 2 | Aba **Alertas** → **Abrir ocorrência** no alerta de `CAM-902-0030` | Aviso "OC-0001 aberta: furto"; a aba **Ocorrências** abre com ela (status **Aberta**). Clicar de novo não duplica: "OC-0001 já estava aberta" |
+| 3 | **Investigar** | Status **Investigada**. Dossiê: padrão **Ocorrências na vizinhança** com `CAM-902-0031` e `TOT-902-0033` (a menos de 1 km, nas últimas 24 h), destacados com halo laranja no mapa; impacto "5 pontos cegos a mais; saúde de Entroncamento 33 → 24"; hipótese **Ação coordenada de furto** (confiança alta); recomendação **acionar GM e PM para ronda e registrar boletim de ocorrência**, citando `procedimento-furto.md › Furtos em série no mesmo bairro` |
+| 4 | **Sugerir agentes mais próximos** | Perfil "guarda municipal e polícia militar". 1º: **Larissa Correia** (GM), 0,71 km, ~2 min, "já está no bairro do local". Os seguintes mostram o custo colateral (ex.: "Cidade Universitária fica com 1 de 3 agentes no pico; risco 72 → 83") e linhas amarelas no mapa |
+| 5 | **Simular** na 1ª sugestão | ANTES × DEPOIS no simulador, sem gravar; botão "Voltar à ocorrência para despachar" |
+| 6 | **Despachar** (confirmar) | Status **Despachada**; a agente vai até a câmera ("em atendimento"); linha laranja origem → local |
+| 7 | **Encerrar** como "Equipamento reposto" | Status **Encerrada**; câmera **Furtado → Operacional**; a agente volta exatamente à posição de origem |
+| 8 | **Relatório** | Resumo, linha do tempo com `ABRIR_OCORRENCIA` → `INVESTIGAR_OCORRENCIA` → `DESPACHAR_AGENTE` → `ENCERRAR_OCORRENCIA`, impacto (ex.: saúde do Entroncamento 27 → 33, disponibilidade 69,2% → 71,2%, +2 p.p.), ações, padrões e fontes. **Copiar**, **Exportar .md** ou **Imprimir / PDF** |
+
+Pela API: `POST /api/ocorrencias` → `GET /api/ocorrencias/{id}/dossie` → `GET /api/ocorrencias/{id}/despacho` → `POST /api/ocorrencias/{id}/despachar` → `POST /api/ocorrencias/{id}/encerrar` → `GET /api/ocorrencias/{id}/relatorio?formato=md`, todas no Swagger.
+
+Os outros cenários mostram os outros padrões: **Degradação (Zona Norte)** → falha num radar dispara **LOTE** e a decisão "troca em lote do modelo"; **Falha de energia (Entroncamento)** → **POSSÍVEL_ENERGIA** e a decisão "acionar a concessionária", em vez de trocar peças.
+
+### Abertura
+
+- **Chave estável:** `equipamentoId + tipoAlerta`. O tipo vem da situação: furtado → `furto`, mau funcionamento → `falha`, manutenção imediata ou vencida → `manutencao`. Já havendo uma ocorrência **não encerrada** com a mesma chave, abrir devolve a existente (HTTP 200 em vez de 201).
+- **Snapshot da abertura** (`montarSnapshot`): indicadores gerais, saúde e risco do bairro e cobertura (cidade e bairro), com as mesmas funções da Central. É o "antes" do relatório.
+
+### Investigação: as regras dos padrões
+
+| Padrão | Dispara quando | Evidência mostrada |
+| --- | --- | --- |
+| **LOTE** | Há outras unidades do mesmo fabricante + modelo em falha (mau funcionamento, em manutenção ou manutenção imediata). Não vale para furto. Usa a mesma análise da previsão de falha em lote (`core/batch.ts`) | Unidades do modelo em falha × total, taxa do lote × taxa da frota, números de série |
+| **VIZINHANÇA** | Furtos ou falhas de outros equipamentos (eventos de situação, exceto a carga inicial) ou outras ocorrências abertas a até **1 km** (haversine) nas últimas **24 h** | Número de série, tipo, horário e distância de cada um |
+| **POSSÍVEL_ENERGIA** | Pelo menos **3** equipamentos fixos do mesmo bairro caem numa janela de **30 min** **e** são pelo menos **75%** dos fixos que operavam no bairro | Fração dos fixos que caíram e horário de cada queda |
+
+O limite de 75% separa um apagão (cai quase tudo: 3 de 3 no Entroncamento) de uma degradação (cai uma parte: 3 de 6 em Jardim Aurora). Sem ele, a degradação virava "queda de energia".
+
+- **Impacto:** o simulador compara o equipamento **operando × fora de operação** (pontos cegos novos, saúde e risco do bairro). É estimativa e está declarado como tal.
+- **Hipótese** (por ordem): furto com vizinhança → "ação coordenada de furto"; furto sem → "furto isolado"; energia → "queda de energia, não defeito do equipamento"; lote → "defeito de lote"; senão, "falha isolada". Limitações aparecem quando há menos de 3 mudanças de situação registradas ("base de histórico curta") ou quando o momento da detecção é desconhecido.
+
+### Manuais e decisão por regras (sem IA generativa)
+
+Os manuais em [`manuais/`](manuais/) são **fictícios**, escritos para a demonstração: um por tipo de equipamento (viatura e moto juntas) e três transversais (furto, falha em lote, queda de energia). Cada seção `##` é um trecho com tipo, fabricante (opcional) e tópicos; `npm run gerar-manuais` gera `src/app/data/manuais.json` (41 trechos), versionado e embutido no painel e na API.
+
+**Busca** (`recuperarTrechos`): BM25 (k1 = 1,2, b = 0,75) sobre seção + tópicos + texto, com minúsculas, sem acentos, sem stopwords e plural simples reduzido ("furtos" → "furto"). Bônus de +1 quando o tipo coincide e +1,5 quando o fabricante coincide (só para trechos que já casaram com a consulta). Empate desfeito pelo id; nada casou, lista vazia.
+
+**Decisão** (`decidirComManual`): a primeira regra da tabela que casa decide, e as fontes são os trechos recuperados sobre o tópico da regra, preferindo o manual do próprio tipo e os transversais.
+
+| Regra | Quando | Decisão | Tópico que a sustenta |
+| --- | --- | --- | --- |
+| `EQUIPAMENTO_DESATIVADO` | equipamento desativado | Planejar a reposição | substituição |
+| `FURTO_REINCIDENTE` | furto + padrão de vizinhança | Acionar GM e PM para ronda e registrar BO | reincidência |
+| `FURTO_ISOLADO` | furto | BO, bloquear o equipamento e solicitar reposição | furto |
+| `QUEDA_DE_ENERGIA` | falha + padrão de energia | Acionar a concessionária; agentes nos pontos sem fiscalização | energia |
+| `FALHA_EM_LOTE` | falha + outras unidades do modelo em falha | OS de troca em lote e preventiva antecipada | lote |
+| `FALHA_ISOLADA` | falha | OS corretiva imediata | falha |
+| `MANUTENCAO` | demais casos | Executar a preventiva pendente | manutenção preventiva |
+
+Cada decisão traz justificativa com a evidência, as fontes (arquivo › seção), confiança e limitações. Se nenhum trecho sustenta a decisão, a confiança cai para **baixa** e isso é dito.
+
+### Despacho: perfil, ETA e ranking
+
+- **Perfil:** furto → guarda municipal e polícia militar; falha e manutenção → agente de trânsito (sinalizar o local). Sem ninguém do perfil livre, qualquer agente em serviço.
+- **Candidatos:** agentes livres (em serviço ou de folga); quem já está em atendimento fica de fora.
+- **ETA (estimativa):** `ETA (min) = ⌈ distância haversine (km) ÷ velocidade (km/h) × 60 + penalidade ⌉`, com velocidade padrão de **30 km/h** em linha reta e **+15 min** para quem está de folga ("convocar"). O trajeto real pelas vias é mais longo, e a tela diz isso.
+- **Ranking:** ETA crescente; empate pela distância e depois pelo id. Top 3.
+- **Custo colateral:** `simular` com a ação `DESPACHAR_AGENTE` mede efetivo, risco e cobertura do bairro de origem depois da saída. De folga não desfalca ninguém; no mesmo bairro do local, o efetivo do bairro não muda.
+- **Despachar** move o agente até o equipamento (situação "em atendimento") e guarda a posição, o bairro e a situação de origem; **encerrar** devolve o agente exatamente para lá. `DESPACHAR_AGENTE` pode ser simulada em `/api/simulacao`, mas só é aplicada pela ocorrência.
+
+### Encerramento e relatório
+
+- **Resoluções:** reposto e consertado devolvem o equipamento a "Operacional" com novo ciclo de preventiva (90 dias); falso alarme devolve a "Operacional" só limpando a pendência; outro mantém a situação. Encerrar duas vezes dá **409**.
+- **Relatório** (`gerarRelatorio`, Markdown no tom da PROMETHEUS, determinístico): resumo; linha do tempo da auditoria; tabela de impacto **na abertura × agora** (disponibilidade, saúde, risco e cobertura do bairro, cobertura e pontos cegos da cidade, com variação em pontos percentuais); ações executadas; padrões, prevenção sugerida e fontes dos manuais. Ocorrência sem investigação ou sem despacho também gera relatório, dizendo que a etapa não ocorreu.
+
 ## Agente de voz PROMETHEUS
 
 Botão redondo com o **microfone**, flutuando no canto da tela. Ele abre o painel **PROMETHEUS · Voz**: você pergunta (falando ou digitando) e a PROMETHEUS responde em texto e em voz alta, com os números do estado atual da cidade.
@@ -428,13 +529,19 @@ O código fica em `services/voice-agent.service.ts` (reconhecimento, síntese e 
 
 ## Testes
 
-`npm test` roda **82 testes** (Vitest): 72 do painel e das regras via `ng test` e 10 da API/SQLite (`npm run test:server`).
+`npm test` roda **134 testes** (Vitest): 113 do painel e das regras via `ng test` e 21 da API, do SQLite e do gerador de manuais (`npm run test:server`).
 
 - `core/simulation.spec.ts`: simular não altera o estado original; desativar nunca aumenta disponibilidade nem cobertura; realocar tira efetivo da origem e soma no destino; antecipar manutenção nunca piora a saúde; diferenças ordenadas; recomendações ordenadas por ganho, determinísticas e a primeira realmente melhora os indicadores; cobertura (um equipamento isolado cobre só as células dentro do raio, desativá-lo reduz a cobertura, dois sobrepostos não perdem cobertura quando um cai, agente fora de turno não cobre).
 - `core/maintenance-route.spec.ts`: imediatas antes das de menor criticidade, sem paradas repetidas, distância total = soma dos trechos, lista vazia sem erro, filtros e furtados fora.
 - `core/bulletin.spec.ts`: o boletim cita os números corretos, muda quando o estado muda e, sem alertas, diz "tudo sob controle".
 - `core/scenarios.spec.ts`: cada cenário altera o estado sem mutar a entrada e é reproduzível; reverter devolve exatamente o estado anterior e preserva itens criados depois.
-- `server/api.spec.ts`: banco criado e populado na primeira execução e não repopulado depois; criar, consultar, editar e desativar equipamento e agente persistem entre reinícios; validação das propriedades por tipo; `sync` com histórico e alertas; cenário persistido e revertido; simulação não grava e aplicar grava e audita; reset restaura o estado inicial; toda rota da API está documentada no OpenAPI e o Swagger UI responde.
+- `server/api.spec.ts`: banco criado e populado na primeira execução e não repopulado depois; criar, consultar, editar e desativar equipamento e agente persistem entre reinícios; validação das propriedades por tipo; `sync` com histórico e alertas; cenário persistido e revertido; simulação não grava e aplicar grava e audita; reset restaura o estado inicial; toda rota da API está documentada no OpenAPI e o Swagger UI responde; ocorrências (abrir idempotente com 201/200, 400, 404, persistência, dossiê, despacho, encerramento com 409 na segunda vez e relatório com a linha do tempo em ordem).
+- `core/occurrences.spec.ts`: tipo de alerta pela situação; abrir é idempotente por equipamento + tipo e não muta a entrada; snapshot com os mesmos números dos indicadores.
+- `core/manuals.spec.ts`: a busca acha o manual do tipo certo, o bônus de fabricante leva o trecho específico ao topo, resultado determinístico e lista vazia sem erro; cada uma das 7 regras decide e cita fonte; sem trecho, confiança baixa.
+- `core/investigation.spec.ts`: cada padrão dispara no cenário certo (furtos → vizinhança, degradação → lote, apagão → energia) e não dispara no oposto; o dossiê não altera o estado, é determinístico e funciona sem histórico.
+- `core/dispatch.spec.ts`: perfil por tipo de alerta, ordenação por ETA, convocação com penalidade, simular não grava e despachar sim, retorno exato à origem, lista vazia sem agentes livres, fallback para qualquer agente em serviço.
+- `core/closure.spec.ts`: encerramento por resolução, recusa do segundo encerramento, relatório com os números da abertura e de agora, linha do tempo ordenada, relatório sem investigação/despacho e texto determinístico.
+- `server/manuals.spec.ts`: `gerar-manuais` produz JSON válido e igual ao versionado, com manual para todo tipo de equipamento.
 - `city-map.spec.ts`: telemetria anda sempre sobre as vias do bairro; o clique numa via encaixa o ponto no eixo da via certa, com bairro e CEP do bairro, traz o KM em rodovia e não devolve nada fora da cidade.
 - `city-state.service.spec.ts`, `prediction.service.spec.ts`, `marker-sync.spec.ts`: KPIs, filtros, alertas, previsões da Parte 3 e mapa incremental (testes anteriores, mantidos).
 
@@ -463,10 +570,16 @@ Com o agrupamento, a mesma frota aparece como 85 ícones (58 grupos, 24 agentes 
 - **Concorrência:** o painel envia alterações em lote (último a gravar vence). Cenários, ações e reset rodam no servidor e devolvem o estado completo.
 - **Auditoria** registra o autor pelo cabeçalho `x-usuario` (o painel envia "gestor (painel)"); não há autenticação.
 - **Modo offline** (sem servidor, ex.: deploy estático): tudo funciona com as mesmas funções puras, mas sem banco, histórico nem auditoria.
+- **Ocorrências:** uma ocorrência por equipamento + tipo de alerta enquanto não for encerrada; abrir não exige que o alerta ainda esteja ativo. Cada ocorrência aceita um despacho (um segundo daria 409, para não perder a origem do primeiro agente).
+- **Manuais são fictícios**, escritos para a demonstração, e a recuperação é por palavras-chave com regras: entende sinônimos só na medida em que os manuais usam as mesmas palavras.
+- **Investigação offline** usa as mudanças de situação registradas no próprio navegador (desde que a página foi aberta) e não tem auditoria; o relatório offline monta a linha do tempo com as datas gravadas na ocorrência.
+- **Impacto no relatório** compara a cidade inteira na abertura e agora: a variação inclui tudo o que mudou no período, não só a ocorrência (o próprio relatório avisa).
 - **Desempenho das recomendações** cresce com o número de candidatas; com milhares de equipamentos em falha, só as 12 manutenções mais urgentes são simuladas por completo.
 
 ## Uso de IA no desenvolvimento
 
 O código foi desenvolvido com apoio de assistentes de IA: **Claude** (Claude Code) e **Gemini** (Antigravity). Na etapa final (cenários com reversão, banco SQLite e API, simulador, próxima melhor ação, pontos cegos, rota de manutenção e boletim), o Claude Code (modelo Claude Opus 5.5) escreveu o código e os testes a partir de uma especificação detalhada do autor, que revisou as decisões. As pastas `.agents/` e `.gemini/` guardam a especificação usada como contexto pelas IAs e ficam fora do pacote de entrega (`.gitattributes`).
 
-A aplicação **não chama nenhuma IA em tempo de execução** e não precisa de chave de API: previsões, recomendações e o boletim são regras e templates explicáveis, com as fórmulas descritas neste README. Em caso de dúvidas, veja [Preciso de chave de API?](#preciso-de-chave-de-api-não).
+No fluxo de ocorrências, o Claude Code também escreveu, por especificação do autor, os **manuais sintéticos** em `manuais/` (textos fictícios, sem relação com documentação real de fabricantes), as regras de decisão e os testes.
+
+A aplicação **não chama nenhuma IA em tempo de execução** e não precisa de chave de API: previsões, recomendações, a investigação, a decisão pelos manuais, o boletim e o relatório são regras e templates explicáveis, com as fórmulas descritas neste README. Em caso de dúvidas, veja [Preciso de chave de API?](#preciso-de-chave-de-api-não).
