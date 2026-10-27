@@ -388,6 +388,9 @@ route('POST', '/api/acoes/aplicar', (req, ctx) => {
   return { ...ctx.estadoCompleto(), simulacao };
 });
 
+/** Cobertura por bairro e lista de pontos cegos (células sem cobertura). */
+route('GET', '/api/cobertura', (_req, ctx) => calcularCobertura(ctx.repo.lerEstado()));
+
 route('GET', '/api/analise', (_req, ctx) => {
   const state = ctx.repo.lerEstado();
   const coverage = calcularCobertura(state);

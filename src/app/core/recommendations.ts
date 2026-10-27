@@ -1,7 +1,8 @@
 import { daysFromToday } from '../data/mock-data';
 import { STATUS_LABELS, TYPE_LABELS } from '../models/equipment-schema';
 import { Equipment } from '../models/fogo.models';
-import { calcularRisco, calcularSaudePorRegiao } from './analysis';
+import { ENFORCEMENT_TYPES, calcularRisco, calcularSaudePorRegiao } from './analysis';
+import { COVERAGE_RADIUS_M } from './coverage-config';
 import { daysUntil } from './indicators';
 import { Acao, Simulacao, simular } from './simulation';
 import { CityState } from './state';
@@ -37,6 +38,11 @@ export interface Recomendacao {
 export const GAIN_WEIGHTS = { risk: 1, health: 0.5, blind: 0.5 } as const;
 /** Quantas recomendações do mesmo tipo de ação entram no top N (para variar as sugestões). */
 const MAX_PER_KIND = 2;
+/**
+ * Só as manutenções mais promissoras pelo pré-filtro são simuladas por completo: com bases
+ * grandes (milhares de equipamentos em falha) simular todas levaria segundos.
+ */
+const MAX_MAINTENANCE_CANDIDATES = 12;
 
 export function ganhoDe(sim: Simulacao): number {
   let riskDrop = 0;
@@ -56,8 +62,23 @@ export function needsMaintenance(e: Equipment, hoje: string): boolean {
 
 function candidates(state: CityState, hoje: string): { acao: Acao; titulo: string; confianca: Recomendacao['confianca']; limitacoes: string }[] {
   const list: ReturnType<typeof candidates> = [];
+  const risk = calcularRisco(state);
+  const riskOf = (hood: string) => risk.find((r) => r.neighborhood === hood)?.risk ?? 0;
 
-  for (const e of state.equipment.filter((x) => needsMaintenance(x, hoje))) {
+  // Pré-filtro barato: fora de operação > manutenção imediata > vencida, fiscalização e alcance
+  // de cobertura pesam, e bairros de maior risco vêm antes.
+  const urgency = (e: Equipment) =>
+    (e.status === 'malfunction' ? 3 : e.status === 'maintenance' ? 2 : 0) +
+    (e.maintenance.priority === 'immediate' ? 2 : 1) +
+    (ENFORCEMENT_TYPES.includes(e.type) ? 2 : 0) +
+    COVERAGE_RADIUS_M[e.type] / 300 +
+    riskOf(e.location.neighborhood) / 25;
+  const maintenance = state.equipment
+    .filter((x) => needsMaintenance(x, hoje))
+    .sort((a, b) => urgency(b) - urgency(a) || a.id.localeCompare(b.id))
+    .slice(0, MAX_MAINTENANCE_CANDIDATES);
+
+  for (const e of maintenance) {
     list.push({
       acao: { tipo: 'ANTECIPAR_MANUTENCAO', equipamentoId: e.id, novaData: hoje },
       titulo: `Manutenção imediata em ${e.serialNumber} (${TYPE_LABELS[e.type].toLowerCase()}, ${e.location.neighborhood})`,
@@ -68,7 +89,6 @@ function candidates(state: CityState, hoje: string): { acao: Acao; titulo: strin
 
   // Realocação: bairros com déficit recebem agentes de folga do próprio bairro ou o excedente
   // dos bairros de menor risco.
-  const risk = calcularRisco(state);
   const health = calcularSaudePorRegiao(state, hoje);
   const deficit = health.filter((h) => h.agentsOnDuty < h.agentsRequired);
   const donors = health

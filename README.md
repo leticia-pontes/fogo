@@ -170,6 +170,29 @@ escore de colapso = 15 × fiscalização indisponível (máx. 45) + fluxo no pic
 
 Nível: **ALTO** ≥ 55 (o mesmo limiar que dispara a previsão de colapso), **MÉDIO** ≥ 35, **BAIXO** abaixo. O escore de colapso é o mesmo da Cidade Preditiva (`collapseStats` em `core/analysis.ts`, usado pelas duas telas).
 
+## Pontos cegos de cobertura
+
+`calcularCobertura(estado)` (`core/coverage.ts`) divide a cidade numa grade de células de **250 m** (521 células dentro dos bairros). Uma célula está **coberta** se o centro dela fica a até R metros (distância haversine) de pelo menos um **equipamento operacional** ou de um **agente em serviço**. Devolve o % coberto da cidade e de cada bairro e a lista de pontos cegos.
+
+Raios (`core/coverage-config.ts`, valores de referência para a demonstração, não medições de campo):
+
+| Fonte | Raio |
+| --- | --- |
+| Viatura | 600 m |
+| Moto operacional | 500 m |
+| Câmera | 450 m |
+| Agente em serviço (a pé ou em viatura) | 400 m |
+| Veículo autônomo de fiscalização | 400 m |
+| Radar | 300 m |
+| Balança, cancela, outro | 150 m |
+| Totem | 120 m |
+| Veículo de transporte, patinete | 0 (não fiscalizam) |
+
+- **Mapa**: botões **Pontos cegos** (células escurecidas, com o total e o % coberto) e **Raios de cobertura** (círculos de cada fonte ativa). Os cards de região mostram o % de cobertura do bairro.
+- **Simulador**: toda falha ou desativação lista os **novos pontos cegos** e os destaca em vermelho no mapa; manutenções e realocações mostram em verde as células recuperadas. As recomendações somam 0,5 ponto de ganho por célula recuperada, e o risco do bairro inclui a fração em ponto cego.
+- **Desempenho** (Node 24, média de 10 execuções): 0,7 ms com a seed (54 equipamentos, 19 agentes); 2,3 ms com 2.054 equipamentos; 1,3 ms com 5.054. A grade é calculada uma vez e cada fonte passa por um pré-filtro de caixa antes do haversine. Já as recomendações simulam cada candidata por completo; por isso só as 12 manutenções mais urgentes (pré-filtro barato) são simuladas: 72 ms com a seed e 338 ms com 2.054 equipamentos (eram 4,8 s sem o pré-filtro).
+- `GET /api/cobertura` devolve o resultado atual.
+
 ## Testes
 
 `npm test` roda 40 testes unitários (Vitest, via `ng test`) sobre as regras de negócio:
