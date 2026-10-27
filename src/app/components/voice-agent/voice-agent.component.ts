@@ -20,6 +20,15 @@ import { VoiceAgentService } from '../../services/voice-agent.service';
                 {{ voice.listening() ? 'Ouvindo…' : voice.speaking() ? 'Falando…' : 'Pronto para ouvir' }}
               </p>
             </div>
+            @if (voice.speaking()) {
+              <button
+                type="button"
+                (click)="voice.stopSpeaking()"
+                class="shrink-0 px-2.5 py-1 rounded-lg border border-fogo-ember text-fogo-ember text-xs font-semibold hover:bg-fogo-ember hover:text-fogo-bg cursor-pointer"
+              >
+                ■ Parar
+              </button>
+            }
             <label class="flex items-center gap-1.5 text-xs text-fogo-muted cursor-pointer">
               <input
                 type="checkbox"
@@ -52,6 +61,9 @@ import { VoiceAgentService } from '../../services/voice-agent.service';
                 </div>
               </div>
             }
+            @if (!voice.canListen && !voice.history().length) {
+              <p class="text-xs text-fogo-muted">{{ voice.motivoSemEscuta }}</p>
+            }
             @if (voice.error(); as err) {
               <p class="text-xs text-fogo-red">{{ err }}</p>
             }
@@ -64,6 +76,7 @@ import { VoiceAgentService } from '../../services/voice-agent.service';
               [attr.aria-pressed]="voice.listening()"
               [attr.aria-label]="voice.listening() ? 'Parar de ouvir' : 'Falar com o PROMETHEUS'"
               [disabled]="!voice.canListen"
+              [title]="voice.motivoSemEscuta"
               class="shrink-0 w-10 h-10 rounded-full flex items-center justify-center cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
               [class]="voice.listening() ? 'bg-fogo-red text-fogo-sand animate-pulse' : 'bg-fogo-ember text-fogo-bg hover:brightness-110'"
             >
@@ -72,6 +85,17 @@ import { VoiceAgentService } from '../../services/voice-agent.service';
                 <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
               </svg>
             </button>
+            @if (voice.speaking()) {
+              <button
+                type="button"
+                (click)="voice.stopSpeaking()"
+                aria-label="Parar a fala do PROMETHEUS"
+                title="Parar a fala"
+                class="shrink-0 w-10 h-10 rounded-full flex items-center justify-center cursor-pointer border-2 border-fogo-ember text-fogo-ember hover:bg-fogo-ember hover:text-fogo-bg"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2" /></svg>
+              </button>
+            }
             <input
               #input
               type="text"

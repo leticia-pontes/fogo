@@ -376,7 +376,7 @@ src/app/
 
 ## Agente de voz PROMETHEUS
 
-O botão do **microfone**, no canto da tela, abre o painel de voz. Pergunte falando ou digitando; a resposta vem em texto e em voz alta, com os números atuais. As perguntas são interpretadas por palavras-chave, sem LLM.
+O botão do **microfone**, no canto da tela, abre o painel de voz. Pergunte falando ou digitando; a resposta vem em texto e em voz alta, com os números atuais. Enquanto a PROMETHEUS fala, o botão **■ Parar** interrompe a resposta (fazer outra pergunta pelo microfone também interrompe). As perguntas são interpretadas por palavras-chave, sem LLM.
 
 | Pergunte algo como | Resposta |
 | --- | --- |
@@ -393,7 +393,7 @@ O botão do **microfone**, no canto da tela, abre o painel de voz. Pergunte fala
 A voz usa a **Web Speech API** do navegador:
 
 - **Fala** (texto → voz): feita pelo próprio navegador, funciona offline.
-- **Escuta** (voz → texto): o navegador envia o áudio ao serviço dele (Google no Chrome, Microsoft no Edge). Precisa de internet, permissão de microfone e página em `localhost` ou HTTPS. Firefox não tem; no Brave costuma falhar.
+- **Escuta** (voz → texto): o navegador envia o áudio ao serviço dele (Google no Chrome, Microsoft no Edge). Precisa de internet, permissão de microfone e página em `localhost` ou HTTPS. Firefox não tem; o Brave tem a API mas não o serviço, então o microfone aparece desabilitado nele.
 
 Sem microfone, sem internet ou noutro navegador, **digite** a pergunta: a resposta sai igual.
 
@@ -401,7 +401,7 @@ Sem microfone, sem internet ou noutro navegador, **digite** a pergunta: a respos
 | --- | --- |
 | Botão do microfone desabilitado | Use Chrome ou Edge, ou digite |
 | "Permissão de microfone negada" | Cadeado da barra de endereço → Microfone → Permitir, e recarregue |
-| "Precisa de internet" | Conecte-se ou digite |
+| "O serviço de transcrição do navegador não respondeu" | Sem internet, ou navegador sem o serviço (Brave, Opera): use Chrome ou Edge, ou digite |
 | Nada acontece pelo IP da rede (`http://192.168…`) | O microfone só funciona em `localhost` ou HTTPS |
 
 </details>

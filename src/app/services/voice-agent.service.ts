@@ -33,7 +33,8 @@ const RECOGNITION_ERRORS: Record<string, string> = {
   'service-not-allowed': 'O navegador bloqueou o reconhecimento de voz. Use Chrome ou Edge, ou digite a pergunta.',
   'no-speech': 'Não ouvi nada. Toque no microfone e fale de novo.',
   'audio-capture': 'Nenhum microfone encontrado.',
-  network: 'O reconhecimento de voz precisa de internet (o navegador transcreve o áudio num serviço online). Digite a pergunta.',
+  network:
+    'O serviço de transcrição do navegador não respondeu (precisa de internet; alguns navegadores, como Brave e Opera, não o oferecem). Use Chrome ou Edge, ou digite a pergunta.',
 };
 
 /** Remove acentos e caixa para comparar comandos falados. */
@@ -60,7 +61,15 @@ export class VoiceAgentService {
   private lastAnnouncedEventId: string | null = null;
 
   readonly canSpeak = this.isBrowser && 'speechSynthesis' in window;
-  readonly canListen = !!this.RecognitionImpl;
+  /** O Brave expõe a API, mas não tem o serviço de transcrição: falha sempre com "network". */
+  private readonly isBrave = this.isBrowser && 'brave' in navigator;
+  readonly canListen = !!this.RecognitionImpl && !this.isBrave;
+  /** Por que o microfone está desabilitado (vazio quando está disponível). */
+  readonly motivoSemEscuta = this.canListen
+    ? ''
+    : this.isBrave
+      ? 'O Brave não oferece o serviço de transcrição de voz. Use Chrome ou Edge, ou digite a pergunta.'
+      : 'Reconhecimento de voz indisponível neste navegador. Use Chrome ou Edge, ou digite a pergunta.';
 
   readonly announcements = signal(false);
   readonly listening = signal(false);
@@ -85,7 +94,7 @@ export class VoiceAgentService {
   }
 
   /** `rate`: velocidade da fala (1 = natural); textos longos, como o boletim, pedem mais. */
-  speak(text: string, rate = 1.2): void {
+  speak(text: string, rate = 1.3): void {
     if (!this.canSpeak) return;
     speechSynthesis.cancel();
     // "agente(s)" e "lotado(s)" ficam estranhos lidos em voz alta.
@@ -110,10 +119,11 @@ export class VoiceAgentService {
       this.recognition?.stop();
       return;
     }
-    if (!this.RecognitionImpl) {
-      this.error.set('Reconhecimento de voz indisponível neste navegador. Use Chrome ou Edge, ou digite a pergunta.');
+    if (!this.canListen || !this.RecognitionImpl) {
+      this.error.set(this.motivoSemEscuta);
       return;
     }
+    // Nova pergunta interrompe a resposta anterior (e o microfone não capta a própria voz).
     this.stopSpeaking();
     this.error.set(null);
     const rec = new this.RecognitionImpl();
