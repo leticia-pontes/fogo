@@ -202,6 +202,14 @@ describe('API + SQLite', () => {
       expect((await call('GET', '/ocorrencias?status=xyz')).status).toBe(400);
     });
 
+    it('busca nos manuais pela API', async () => {
+      const { status, data } = await call('GET', '/manuais/busca?q=falha%20lote%20troca&tipo=camera&fabricante=Hikvision');
+      expect(status).toBe(200);
+      expect(data[0]).toMatchObject({ id: 'camera#lote-darkfighter-com-degradacao', fonte: 'camera.md' });
+      expect((await call('GET', '/manuais/busca?q=xilofone')).data).toEqual([]);
+      expect((await call('GET', '/manuais/busca')).status).toBe(400);
+    });
+
     it('entrada inválida devolve 400 e equipamento inexistente devolve 404', async () => {
       const bad = await call('POST', '/ocorrencias', { equipamentoId: '', tipoAlerta: 'incendio' });
       expect(bad.status).toBe(400);

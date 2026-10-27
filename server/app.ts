@@ -9,6 +9,8 @@ import { gerarBoletim } from '../src/app/core/bulletin';
 import { gerarRotaManutencao } from '../src/app/core/maintenance-route';
 import { STATUS_OCORRENCIA, StatusOcorrencia, abrirOcorrencia, validarAbertura, type AberturaOcorrencia } from '../src/app/core/occurrences';
 import { recomendarAcoes } from '../src/app/core/recommendations';
+import { recuperarTrechos } from '../src/app/core/manuals';
+import { MANUAIS } from '../src/app/data/manuals-index';
 import { Acao, AcaoInvalida, aplicarAcao, simular } from '../src/app/core/simulation';
 import { SCENARIOS, ScenarioId, applyScenario, recordSnapshot, revertScenarios } from '../src/app/core/scenarios';
 import type { CityState } from '../src/app/core/state';
@@ -478,6 +480,17 @@ route('GET', '/api/ocorrencias', (req, ctx) => {
 });
 
 route('GET', '/api/ocorrencias/:id', (req, ctx) => ctx.repo.obterOcorrencia(req.params['id']) ?? notFound());
+
+/** Busca nos manuais fictícios (BM25 + bônus por tipo e fabricante). */
+route('GET', '/api/manuais/busca', (req) => {
+  const q = req.query.get('q')?.trim();
+  if (!q) throw new HttpError(400, 'Informe a consulta em ?q=');
+  return recuperarTrechos(MANUAIS, q, {
+    tipo: req.query.get('tipo') || undefined,
+    fabricante: req.query.get('fabricante') || undefined,
+    topN: Math.min(20, Number(req.query.get('topN')) || 5),
+  });
+});
 
 function notFound(): never {
   throw new HttpError(404, 'Não encontrado');

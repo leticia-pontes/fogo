@@ -7,16 +7,20 @@
   },
   "scripts": {
     "ng": "ng",
+    "prestart": "node scripts/gerar-manuais.mjs",
     "start": "node scripts/dev.mjs",
     "start:web": "ng serve",
     "api": "tsx server/main.ts",
     "serve": "ng build && tsx server/main.ts",
+    "prebuild": "node scripts/gerar-manuais.mjs",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
     "reset": "tsx server/reset.ts",
     "sintetico": "tsx server/synthetic.ts",
+    "pretest": "node scripts/gerar-manuais.mjs",
     "test": "ng test --watch=false && npm run test:server",
-    "test:server": "vitest run --config vitest.server.config.mts"
+    "test:server": "vitest run --config vitest.server.config.mts",
+    "gerar-manuais": "node scripts/gerar-manuais.mjs"
   },
   "private": true,
   "dependencies": {

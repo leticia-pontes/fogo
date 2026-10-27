@@ -370,6 +370,35 @@ export const OPENAPI = {
     '/api/ocorrencias/{id}': {
       get: { tags: ['Ocorrências'], summary: 'Consulta uma ocorrência', parameters: [idParam], responses: { 200: ok('Ocorrência', ref('Ocorrencia')), 404: NAO_ENCONTRADO } },
     },
+    '/api/manuais/busca': {
+      get: {
+        tags: ['Ocorrências'],
+        summary: 'Busca nos manuais fictícios (BM25 por palavras-chave, sem IA generativa)',
+        parameters: [
+          { name: 'q', in: 'query', required: true, description: 'Consulta em português', schema: { type: 'string', example: 'falha em lote troca preventiva' } },
+          query('tipo', 'Tipo de equipamento (bônus de score quando coincide)', { type: 'string', enum: EQUIPMENT_TYPES }),
+          query('fabricante', 'Fabricante (bônus de score quando coincide)', { type: 'string', example: 'Hikvision' }),
+          query('topN', 'Máximo de trechos (padrão 5, máx. 20)', { type: 'integer', default: 5 }),
+        ],
+        responses: {
+          200: ok('Trechos ordenados por score (lista vazia quando nada casa)', {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'string', example: 'camera#lote-darkfighter-com-degradacao' },
+                trecho: { type: 'string' },
+                fonte: { type: 'string', example: 'camera.md' },
+                secao: { type: 'string' },
+                topicos: { type: 'array', items: { type: 'string' } },
+                score: { type: 'number' },
+              },
+            },
+          }),
+          400: erro('Consulta vazia'),
+        },
+      },
+    },
     '/api/eventos': { get: { tags: ['Consultas'], summary: 'Histórico de mudanças de situação', parameters: [limite], responses: { 200: ok('Eventos', { type: 'array', items: { type: 'object' } }) } } },
   },
 };

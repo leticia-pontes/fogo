@@ -1,0 +1,579 @@
+[
+  {
+    "id": "balanca#falha-de-pesagem",
+    "fonte": "balanca.md",
+    "titulo": "Manual de operação: balança de pesagem dinâmica",
+    "secao": "Falha de pesagem",
+    "tipos": [
+      "truck_scale"
+    ],
+    "fabricante": null,
+    "topicos": [
+      "falha"
+    ],
+    "texto": "Leituras zeradas ou fora da faixa física por mais de 30 minutos indicam falha do sensor de carga. Desative a autuação automática e abra OS corretiva imediata."
+  },
+  {
+    "id": "balanca#afericao-e-tolerancia-metrologica",
+    "fonte": "balanca.md",
+    "titulo": "Manual de operação: balança de pesagem dinâmica",
+    "secao": "Aferição e tolerância metrológica",
+    "tipos": [
+      "truck_scale"
+    ],
+    "fabricante": null,
+    "topicos": [
+      "calibracao",
+      "manutencao-preventiva"
+    ],
+    "texto": "A tolerância metrológica deve ser conferida semestralmente com veículo-padrão. Desvio acima da tolerância cadastrada exige recalibração antes de voltar a autuar."
+  },
+  {
+    "id": "balanca#substituicao-de-sensores",
+    "fonte": "balanca.md",
+    "titulo": "Manual de operação: balança de pesagem dinâmica",
+    "secao": "Substituição de sensores",
+    "tipos": [
+      "truck_scale"
+    ],
+    "fabricante": null,
+    "topicos": [
+      "substituicao",
+      "reposicao",
+      "desativacao"
+    ],
+    "texto": "Sensores piezoelétricos danificados por recapeamento da via não têm reparo: solicite substituição e programe a obra com o órgão de trânsito."
+  },
+  {
+    "id": "camera#perda-de-video-ou-imagem-congelada",
+    "fonte": "camera.md",
+    "titulo": "Manual de operação: câmera de videomonitoramento",
+    "secao": "Perda de vídeo ou imagem congelada",
+    "tipos": [
+      "camera"
+    ],
+    "fabricante": null,
+    "topicos": [
+      "falha",
+      "conectividade"
+    ],
+    "texto": "Câmera sem stream por mais de 5 minutos é falha. Reinicie remotamente pela central; sem retorno, verifique o switch PoE e a fibra do ponto. Persistindo, abra OS corretiva imediata, pois o trecho fica sem monitoramento."
+  },
+  {
+    "id": "camera#visao-noturna-e-lente",
+    "fonte": "camera.md",
+    "titulo": "Manual de operação: câmera de videomonitoramento",
+    "secao": "Visão noturna e lente",
+    "tipos": [
+      "camera"
+    ],
+    "fabricante": null,
+    "topicos": [
+      "manutencao-preventiva",
+      "calibracao"
+    ],
+    "texto": "A limpeza da cúpula e o teste do iluminador infravermelho são trimestrais. Imagem noturna escura ou manchada indica lente suja ou LED IR degradado; agende preventiva."
+  },
+  {
+    "id": "camera#lote-darkfighter-com-degradacao",
+    "fonte": "camera.md",
+    "titulo": "Manual de operação: câmera de videomonitoramento",
+    "secao": "Lote DarkFighter com degradação",
+    "tipos": [
+      "camera"
+    ],
+    "fabricante": "Hikvision",
+    "topicos": [
+      "lote",
+      "falha",
+      "substituicao"
+    ],
+    "texto": "O modelo DarkFighter DS-2DF8436 apresenta degradação do módulo PTZ em lotes do mesmo período de fabricação. Ao constatar duas ou mais falhas desse modelo, abra OS de troca em lote para todas as unidades instaladas e antecipe a preventiva das que ainda operam."
+  },
+  {
+    "id": "camera#furto-ou-dano-da-camera",
+    "fonte": "camera.md",
+    "titulo": "Manual de operação: câmera de videomonitoramento",
+    "secao": "Furto ou dano da câmera",
+    "tipos": [
+      "camera"
+    ],
+    "fabricante": null,
+    "topicos": [
+      "furto",
+      "vandalismo",
+      "reposicao"
+    ],
+    "texto": "Câmera furtada deixa um ponto cego imediato. Registre boletim de ocorrência, acione a guarda municipal para o local e solicite reposição. Verifique se câmeras vizinhas registraram a ação: as imagens instruem o boletim."
+  },
+  {
+    "id": "cancela#cancela-travada-ou-sem-resposta",
+    "fonte": "cancela.md",
+    "titulo": "Manual de operação: cancela automatizada",
+    "secao": "Cancela travada ou sem resposta",
+    "tipos": [
+      "barrier_gate"
+    ],
+    "fabricante": null,
+    "topicos": [
+      "falha",
+      "conectividade"
+    ],
+    "texto": "Cancela travada fechada bloqueia o acesso; travada aberta perde o controle. Em ambos os casos, acione o modo manual no local e abra OS corretiva imediata. Verifique a leitora (RFID, LPR ou ticket) antes de trocar o motor."
+  },
+  {
+    "id": "cancela#manutencao-preventiva-do-braco-e-motor",
+    "fonte": "cancela.md",
+    "titulo": "Manual de operação: cancela automatizada",
+    "secao": "Manutenção preventiva do braço e motor",
+    "tipos": [
+      "barrier_gate"
+    ],
+    "fabricante": null,
+    "topicos": [
+      "manutencao-preventiva"
+    ],
+    "texto": "Cancelas com mais de 2.000 ciclos diários pedem lubrificação e inspeção do braço a cada 60 dias. Ruído no fim do curso indica desgaste da engrenagem."
+  },
+  {
+    "id": "cancela#dano-por-colisao-ou-furto",
+    "fonte": "cancela.md",
+    "titulo": "Manual de operação: cancela automatizada",
+    "secao": "Dano por colisão ou furto",
+    "tipos": [
+      "barrier_gate"
+    ],
+    "fabricante": null,
+    "topicos": [
+      "furto",
+      "vandalismo",
+      "reposicao"
+    ],
+    "texto": "Braço quebrado por colisão ou furto de leitora: registre ocorrência, fotografe o local e solicite reposição. Mantenha agente no acesso até a troca."
+  },
+  {
+    "id": "falha-em-lote#identificacao-de-lote-defeituoso",
+    "fonte": "falha-em-lote.md",
+    "titulo": "Falha em lote por fabricante",
+    "secao": "Identificação de lote defeituoso",
+    "tipos": [
+      "geral"
+    ],
+    "fabricante": null,
+    "topicos": [
+      "lote",
+      "falha"
+    ],
+    "texto": "Falhas repetidas do mesmo fabricante e modelo, acima da média da frota, indicam defeito de lote. Compare a taxa de falha do modelo com a do restante da frota antes de concluir."
+  },
+  {
+    "id": "falha-em-lote#troca-em-lote",
+    "fonte": "falha-em-lote.md",
+    "titulo": "Falha em lote por fabricante",
+    "secao": "Troca em lote",
+    "tipos": [
+      "geral"
+    ],
+    "fabricante": null,
+    "topicos": [
+      "lote",
+      "substituicao",
+      "garantia"
+    ],
+    "texto": "Confirmado o defeito de lote, abra OS de troca em lote para todas as unidades do modelo, inclusive as que ainda operam. Acione a garantia do fabricante e registre os números de série afetados."
+  },
+  {
+    "id": "falha-em-lote#preventiva-antecipada",
+    "fonte": "falha-em-lote.md",
+    "titulo": "Falha em lote por fabricante",
+    "secao": "Preventiva antecipada",
+    "tipos": [
+      "geral"
+    ],
+    "fabricante": null,
+    "topicos": [
+      "lote",
+      "manutencao-preventiva"
+    ],
+    "texto": "Enquanto a troca não ocorre, antecipe a preventiva das unidades que ainda operam para os próximos 7 dias. Priorize as instaladas em bairros de maior risco."
+  },
+  {
+    "id": "outro#falha-generica",
+    "fonte": "outro.md",
+    "titulo": "Manual de operação: outros equipamentos (painéis, sensores)",
+    "secao": "Falha genérica",
+    "tipos": [
+      "other"
+    ],
+    "fabricante": null,
+    "topicos": [
+      "falha",
+      "conectividade"
+    ],
+    "texto": "Equipamento sem comunicação ou com leitura incoerente: verifique alimentação e link de dados no local e abra OS corretiva. Registre na descrição o comportamento observado, pois não há procedimento específico do fabricante."
+  },
+  {
+    "id": "outro#manutencao-preventiva",
+    "fonte": "outro.md",
+    "titulo": "Manual de operação: outros equipamentos (painéis, sensores)",
+    "secao": "Manutenção preventiva",
+    "tipos": [
+      "other"
+    ],
+    "fabricante": null,
+    "topicos": [
+      "manutencao-preventiva"
+    ],
+    "texto": "Siga o intervalo informado pelo fabricante no cadastro. Na ausência dele, adote inspeção semestral."
+  },
+  {
+    "id": "outro#furto-ou-dano",
+    "fonte": "outro.md",
+    "titulo": "Manual de operação: outros equipamentos (painéis, sensores)",
+    "secao": "Furto ou dano",
+    "tipos": [
+      "other"
+    ],
+    "fabricante": null,
+    "topicos": [
+      "furto",
+      "vandalismo",
+      "reposicao"
+    ],
+    "texto": "Equipamento furtado ou danificado: registre boletim de ocorrência e solicite reposição. Avalie se o ponto precisa de proteção física adicional."
+  },
+  {
+    "id": "patinete#unidade-travada-ou-sem-sinal",
+    "fonte": "patinete.md",
+    "titulo": "Manual de operação: patinetes e bicicletas elétricas compartilhadas",
+    "secao": "Unidade travada ou sem sinal",
+    "tipos": [
+      "scooter"
+    ],
+    "fabricante": null,
+    "topicos": [
+      "falha",
+      "conectividade"
+    ],
+    "texto": "Unidade sem sinal de GPS por mais de 2 horas deve ser localizada pela última posição e recolhida. Falha de trava eletrônica exige recolhimento para a oficina."
+  },
+  {
+    "id": "patinete#bateria",
+    "fonte": "patinete.md",
+    "titulo": "Manual de operação: patinetes e bicicletas elétricas compartilhadas",
+    "secao": "Bateria",
+    "tipos": [
+      "scooter"
+    ],
+    "fabricante": null,
+    "topicos": [
+      "bateria",
+      "manutencao-preventiva"
+    ],
+    "texto": "Recolha para troca de bateria abaixo de 15%. Baterias com inchaço devem ser descartadas como resíduo especial, nunca recarregadas."
+  },
+  {
+    "id": "patinete#furto-e-vandalismo",
+    "fonte": "patinete.md",
+    "titulo": "Manual de operação: patinetes e bicicletas elétricas compartilhadas",
+    "secao": "Furto e vandalismo",
+    "tipos": [
+      "scooter"
+    ],
+    "fabricante": null,
+    "topicos": [
+      "furto",
+      "vandalismo",
+      "reposicao"
+    ],
+    "texto": "Unidade fora da área permitida e sem sinal é considerada furtada: registre a ocorrência e bloqueie a unidade no aplicativo. Vandalismo recorrente na mesma estação indica necessidade de câmera ou ronda no ponto."
+  },
+  {
+    "id": "procedimento-furto#primeiras-acoes",
+    "fonte": "procedimento-furto.md",
+    "titulo": "Procedimento em caso de furto",
+    "secao": "Primeiras ações",
+    "tipos": [
+      "geral"
+    ],
+    "fabricante": null,
+    "topicos": [
+      "furto",
+      "boletim-ocorrencia"
+    ],
+    "texto": "Ao confirmar furto de equipamento, registre boletim de ocorrência com número de série, local e horário de detecção. Isole o ponto e bloqueie o equipamento nos sistemas (pagamentos, rastreio, rádio). Preserve as imagens das câmeras vizinhas."
+  },
+  {
+    "id": "procedimento-furto#furtos-em-serie-no-mesmo-bairro",
+    "fonte": "procedimento-furto.md",
+    "titulo": "Procedimento em caso de furto",
+    "secao": "Furtos em série no mesmo bairro",
+    "tipos": [
+      "geral"
+    ],
+    "fabricante": null,
+    "topicos": [
+      "furto",
+      "reincidencia",
+      "policiamento"
+    ],
+    "texto": "Dois ou mais furtos no mesmo bairro em poucos dias indicam ação organizada. Acione a guarda municipal e a polícia militar para ronda no perímetro e compartilhe os pontos afetados. Priorize a reposição dos equipamentos de fiscalização e monitoramento."
+  },
+  {
+    "id": "procedimento-furto#reposicao",
+    "fonte": "procedimento-furto.md",
+    "titulo": "Procedimento em caso de furto",
+    "secao": "Reposição",
+    "tipos": [
+      "geral"
+    ],
+    "fabricante": null,
+    "topicos": [
+      "reposicao",
+      "substituicao"
+    ],
+    "texto": "A reposição deve priorizar pontos que ficaram sem cobertura de câmera ou radar. Instale com proteção antifurto (gabinete reforçado, parafusos de segurança) em pontos reincidentes."
+  },
+  {
+    "id": "radar#falha-de-leitura-ou-captura",
+    "fonte": "radar.md",
+    "titulo": "Manual de operação: radar de fiscalização",
+    "secao": "Falha de leitura ou captura",
+    "tipos": [
+      "radar"
+    ],
+    "fabricante": null,
+    "topicos": [
+      "falha",
+      "conectividade"
+    ],
+    "texto": "Radar sem registrar passagens por mais de 15 minutos em horário de fluxo deve ser tratado como falha. Verifique primeiro a alimentação e o link de dados no armário do poste. Persistindo, abra OS corretiva imediata: a via fica sem fiscalização eletrônica até o reparo."
+  },
+  {
+    "id": "radar#calibracao-e-afericao-metrologica",
+    "fonte": "radar.md",
+    "titulo": "Manual de operação: radar de fiscalização",
+    "secao": "Calibração e aferição metrológica",
+    "tipos": [
+      "radar"
+    ],
+    "fabricante": null,
+    "topicos": [
+      "calibracao",
+      "manutencao-preventiva"
+    ],
+    "texto": "A aferição do medidor de velocidade é anual e obrigatória; autos emitidos com aferição vencida podem ser anulados. Agende a preventiva com 15 dias de antecedência do vencimento. Após qualquer troca de sensor, nova aferição é exigida antes de voltar a autuar."
+  },
+  {
+    "id": "radar#vandalismo-e-furto-de-componentes",
+    "fonte": "radar.md",
+    "titulo": "Manual de operação: radar de fiscalização",
+    "secao": "Vandalismo e furto de componentes",
+    "tipos": [
+      "radar"
+    ],
+    "fabricante": null,
+    "topicos": [
+      "furto",
+      "vandalismo",
+      "reposicao"
+    ],
+    "texto": "Furto de câmera OCR, laço indutivo ou gabinete deixa o ponto inoperante. Registre boletim de ocorrência, isole o local e solicite reposição do componente. Enquanto não houver reposição, considere reforçar a fiscalização com agente de trânsito no trecho."
+  },
+  {
+    "id": "radar#substituicao-do-equipamento",
+    "fonte": "radar.md",
+    "titulo": "Manual de operação: radar de fiscalização",
+    "secao": "Substituição do equipamento",
+    "tipos": [
+      "radar"
+    ],
+    "fabricante": null,
+    "topicos": [
+      "substituicao",
+      "reposicao",
+      "desativacao"
+    ],
+    "texto": "Radar desativado ou com falhas repetidas (três ou mais no trimestre) deve entrar no plano de substituição. A troca exige nova aferição e publicação do ponto de fiscalização."
+  },
+  {
+    "id": "totem#totem-fora-do-ar",
+    "fonte": "totem.md",
+    "titulo": "Manual de operação: totem de estacionamento rotativo",
+    "secao": "Totem fora do ar",
+    "tipos": [
+      "parking_totem"
+    ],
+    "fabricante": null,
+    "topicos": [
+      "falha",
+      "conectividade"
+    ],
+    "texto": "Totem sem comunicação impede a venda de créditos na quadra. Verifique a conexão 4G e a bateria; sem retorno, abra OS corretiva e sinalize a quadra com orientação de compra pelo aplicativo."
+  },
+  {
+    "id": "totem#bobina-de-papel-e-insumos",
+    "fonte": "totem.md",
+    "titulo": "Manual de operação: totem de estacionamento rotativo",
+    "secao": "Bobina de papel e insumos",
+    "tipos": [
+      "parking_totem"
+    ],
+    "fabricante": null,
+    "topicos": [
+      "manutencao-preventiva"
+    ],
+    "texto": "Reponha a bobina quando o estoque informado ficar abaixo de 20%. A rota de reposição deve agrupar totens próximos para reduzir deslocamentos."
+  },
+  {
+    "id": "totem#arrombamento-e-furto",
+    "fonte": "totem.md",
+    "titulo": "Manual de operação: totem de estacionamento rotativo",
+    "secao": "Arrombamento e furto",
+    "tipos": [
+      "parking_totem"
+    ],
+    "fabricante": null,
+    "topicos": [
+      "furto",
+      "vandalismo",
+      "reposicao"
+    ],
+    "texto": "Arrombamento do cofre ou furto do totem: registre boletim de ocorrência, acione a guarda municipal e bloqueie o equipamento no sistema de pagamentos. Solicite reposição após a perícia."
+  },
+  {
+    "id": "veiculo-autonomo#parada-inesperada-em-rota",
+    "fonte": "veiculo-autonomo.md",
+    "titulo": "Manual de operação: veículo autônomo de fiscalização",
+    "secao": "Parada inesperada em rota",
+    "tipos": [
+      "autonomous_vehicle"
+    ],
+    "fabricante": null,
+    "topicos": [
+      "falha"
+    ],
+    "texto": "Veículo parado fora da base por mais de 10 minutos deve ser recolhido. Verifique a telemetria do LiDAR e do leitor de placas; falha de sensor exige OS corretiva antes de retomar a rota."
+  },
+  {
+    "id": "veiculo-autonomo#bateria-e-recarga",
+    "fonte": "veiculo-autonomo.md",
+    "titulo": "Manual de operação: veículo autônomo de fiscalização",
+    "secao": "Bateria e recarga",
+    "tipos": [
+      "autonomous_vehicle"
+    ],
+    "fabricante": null,
+    "topicos": [
+      "manutencao-preventiva",
+      "bateria"
+    ],
+    "texto": "Programe a recarga ao atingir 25% de bateria. Ciclos completos repetidos abaixo de 10% reduzem a vida útil; prefira recargas parciais."
+  },
+  {
+    "id": "veiculo-autonomo#dano-ou-furto",
+    "fonte": "veiculo-autonomo.md",
+    "titulo": "Manual de operação: veículo autônomo de fiscalização",
+    "secao": "Dano ou furto",
+    "tipos": [
+      "autonomous_vehicle"
+    ],
+    "fabricante": null,
+    "topicos": [
+      "furto",
+      "vandalismo",
+      "reposicao"
+    ],
+    "texto": "Veículo danificado ou levado: registre boletim de ocorrência, rastreie pela última posição e acione a guarda municipal. A frota restante deve cobrir a área até a reposição."
+  },
+  {
+    "id": "veiculo-transporte#rastreador-inoperante",
+    "fonte": "veiculo-transporte.md",
+    "titulo": "Manual de operação: veículos de transporte (táxi, mototáxi, escolar, ônibus)",
+    "secao": "Rastreador inoperante",
+    "tipos": [
+      "transport_vehicle"
+    ],
+    "fabricante": null,
+    "topicos": [
+      "falha",
+      "conectividade"
+    ],
+    "texto": "Veículo cadastrado sem posição por mais de 1 hora em serviço: notifique o permissionário e abra OS de verificação do rastreador. Transporte escolar sem rastreio não deve circular."
+  },
+  {
+    "id": "veiculo-transporte#vistoria-periodica",
+    "fonte": "veiculo-transporte.md",
+    "titulo": "Manual de operação: veículos de transporte (táxi, mototáxi, escolar, ônibus)",
+    "secao": "Vistoria periódica",
+    "tipos": [
+      "transport_vehicle"
+    ],
+    "fabricante": null,
+    "topicos": [
+      "manutencao-preventiva"
+    ],
+    "texto": "A vistoria do órgão de trânsito é semestral para escolares e anual para os demais. Vistoria vencida suspende a permissão até a regularização."
+  },
+  {
+    "id": "veiculo-transporte#furto-do-veiculo",
+    "fonte": "veiculo-transporte.md",
+    "titulo": "Manual de operação: veículos de transporte (táxi, mototáxi, escolar, ônibus)",
+    "secao": "Furto do veículo",
+    "tipos": [
+      "transport_vehicle"
+    ],
+    "fabricante": null,
+    "topicos": [
+      "furto",
+      "reposicao"
+    ],
+    "texto": "Veículo de transporte furtado: oriente o permissionário a registrar boletim de ocorrência, comunique a polícia militar com a última posição do rastreador e suspenda a permissão temporariamente."
+  },
+  {
+    "id": "viatura-moto#pane-mecanica-em-servico",
+    "fonte": "viatura-moto.md",
+    "titulo": "Manual de operação: viaturas e motos operacionais",
+    "secao": "Pane mecânica em serviço",
+    "tipos": [
+      "patrol_car",
+      "agent_moto"
+    ],
+    "fabricante": null,
+    "topicos": [
+      "falha"
+    ],
+    "texto": "Viatura ou moto em pane deve ser rebocada para a base, e a equipe remanejada para outra viatura disponível. Abra OS corretiva imediata: cada viatura parada reduz o efetivo motorizado do bairro."
+  },
+  {
+    "id": "viatura-moto#revisao-preventiva",
+    "fonte": "viatura-moto.md",
+    "titulo": "Manual de operação: viaturas e motos operacionais",
+    "secao": "Revisão preventiva",
+    "tipos": [
+      "patrol_car",
+      "agent_moto"
+    ],
+    "fabricante": null,
+    "topicos": [
+      "manutencao-preventiva"
+    ],
+    "texto": "Revisão a cada 10.000 km ou 90 dias, o que vier primeiro. Inclui freios, pneus, giroflex e rádio. Viatura com revisão vencida não deve sair em patrulha de alta velocidade."
+  },
+  {
+    "id": "viatura-moto#furto-ou-roubo-de-viatura",
+    "fonte": "viatura-moto.md",
+    "titulo": "Manual de operação: viaturas e motos operacionais",
+    "secao": "Furto ou roubo de viatura",
+    "tipos": [
+      "patrol_car",
+      "agent_moto"
+    ],
+    "fabricante": null,
+    "topicos": [
+      "furto",
+      "reposicao"
+    ],
+    "texto": "Viatura ou moto furtada: comunique imediatamente a polícia militar, registre boletim de ocorrência e bloqueie o rádio e o leitor de placas embarcado. Redistribua o efetivo do bairro até a reposição."
+  }
+]
