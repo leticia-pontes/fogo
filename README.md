@@ -1,26 +1,27 @@
 # F.O.G.O. – Ferramenta Onisciente de Gestão e Operações
 
-Solução para a **Etapa Bônus do DSIN Coder Challenge (Protocolo PROMETHEUS)**: SPA em **Angular 21** (standalone + Signals), **Tailwind CSS** e **Leaflet**.
+Solução para a **Etapa Bônus do DSIN Coder Challenge (Protocolo PROMETHEUS)**: painel em **Angular 21** (standalone + Signals), **Tailwind CSS** e **Leaflet**, com uma API em **Node.js** gravando num banco **SQLite**.
 
-Roda sem banco de dados, chaves de API ou servidor de mapas: o estado fica em memória (Signals) e é persistido no `localStorage`. Os dados de exemplo cobrem 10 tipos de equipamento (há ainda o tipo **Outro**, para cadastros livres), as 6 situações e os 3 tipos de agente.
+Roda sem chaves de API, sem servidor de mapas e sem instalar banco: o SQLite é um arquivo único (`data/fogo.db`), criado e populado sozinho na primeira execução. Os dados de exemplo cobrem 10 tipos de equipamento (há ainda o tipo **Outro**, para cadastros livres), as 6 situações e os 3 tipos de agente.
 
 A operação acontece em **Nova Prometeia**, uma cidade fictícia desenhada em vetor pelo próprio Leaflet: contorno orgânico, 6 bairros, o Rio Brasa, parques, avenidas curvas e uma rodovia. Não há quadras nem prédios, para que o mapa destaque apenas o que importa à operação.
 
-**Pré-requisitos:** Node.js ≥ 20.19 (testado com 24.x) e npm ≥ 10. O agente de voz exige Chrome ou Edge.
+**Pré-requisitos:** Node.js ≥ 22.13 (testado com 24.x; usa o `node:sqlite` nativo) e npm ≥ 10. O agente de voz exige Chrome ou Edge.
 
 ```bash
 npm install
-npm start          # http://localhost:4200
-npm run build      # bundle de produção em dist/fogo-nexus
-npm test           # testes unitários (Vitest)
+npm start               # API (porta 3000) + painel em http://localhost:4200
+npm run reset           # apaga o banco e recria com a seed de exemplo
+npm test                # testes do painel e das regras (ng test) + testes da API/SQLite
+npm run serve           # build de produção servido pela própria API em http://localhost:3000
 ```
 
-> Para voltar ao cenário inicial: **Inventário → Restaurar dados de exemplo**.
+> Para voltar ao cenário inicial também dá para usar **Inventário → Restaurar dados de exemplo** ou **Simular Cenários → Restaurar Estado Inicial**: no painel conectado, os dois recriam o banco.
 
 ### Roteiro de demonstração
 
 1. **Missão guiada** (painel inferior): três passos que percorrem Inventário → Central → Cidade Preditiva. Use **Pular Calibração / Modo Livre** para explorar sem guia.
-2. **Simular Cenários (Homologação)**, no cabeçalho, após a missão: onda de furtos no Centro, degradação na Zona Norte e véspera de pico na Zona Sul.
+2. **Simular Cenários (Homologação)**, no cabeçalho, após a missão: onda de furtos no Centro, degradação na Zona Norte, véspera de pico na Zona Sul e falha de energia no Entroncamento. Com um cenário ativo, uma faixa vermelha mostra o cenário e os alertas críticos, com o botão **Reverter cenário** (desfaz só o que o cenário mudou).
 3. **Simular telemetria em tempo real**, na Central: começa **desligada**; ao ligar, um evento é gerado a cada 3 s.
 4. **Agente de voz PROMETHEUS**: responde perguntas ("quantos alertas?", "qual o maior risco?") e pode anunciar em voz alta as falhas vindas da telemetria.
 
@@ -32,16 +33,56 @@ git archive -o fogo.zip HEAD   # só arquivos versionados, sem node_modules/dist
 
 ---
 
+## Banco de dados e API
+
+**Por que SQLite:** é um arquivo único, sem servidor nem instalação, e o Node 22+ já traz o driver (`node:sqlite`), então não há dependência nativa para compilar.
+
+- **Criação automática:** ao subir, a API cria `data/fogo.db` com o esquema e a seed. Se o arquivo já existe, nada é repopulado. `FOGO_DB=/outro/caminho.db` muda o arquivo.
+- **Esquema** (`server/db.ts`): `equipamentos` (campos comuns em colunas + `propriedades` JSON validada por `json_valid` e pelo schema do tipo na API), `agentes`, `eventos_situacao` (histórico de telemetria/mudanças de situação), `alertas` (abertos/encerrados conforme o estado), `auditoria` (quem, quando, antes → depois), `cenarios_aplicados` (snapshot para reverter) e `estado_cidade`. Índices em tipo, situação e bairro.
+- **Repositório** (`server/repository.ts`): `listarEquipamentos()`, `listarAgentes()`, `salvarEquipamento()`, `salvarAgente()`, `registrarAuditoria()` e afins. A API só fala com o banco por ele; as regras de negócio (`src/app/core/`) recebem o estado lido e não sabem que o banco existe.
+- **Painel ↔ API:** o painel carrega `GET /api/estado` e envia em lote (`POST /api/sync`, a cada 250 ms de inatividade) só o que mudou: cadastros, mudanças de situação, telemetria e recomendações aplicadas. Cenários de crise e reset rodam no servidor. Sem servidor (ex.: deploy estático na Vercel), o cabeçalho mostra **Modo offline** e o estado fica no `localStorage`, como antes.
+
+| Rota | O que faz |
+| --- | --- |
+| `GET /api/estado` | equipamentos, agentes, bairro em pico e cenário ativo |
+| `GET/POST /api/equipamentos`, `GET/PUT/DELETE /api/equipamentos/:id` | CRUD (filtros `?tipo=&situacao=&bairro=`) |
+| `PATCH /api/equipamentos/:id/situacao` | troca a situação (ex.: desativar) |
+| `GET/POST /api/agentes`, `GET/PUT/DELETE /api/agentes/:id`, `PATCH /api/agentes/:id/situacao` | idem para agentes |
+| `POST /api/sync` | gravação em lote vinda do painel |
+| `POST /api/cenarios/:id`, `POST /api/cenarios/reverter` | aplica / reverte cenário de crise |
+| `POST /api/reset` | recria o banco com a seed |
+| `GET /api/alertas`, `GET /api/eventos`, `GET /api/auditoria` | alertas abertos, histórico de situação, auditoria |
+
+### Seed enxuta
+
+54 equipamentos e 19 agentes em 6 bairros, gerados de forma determinística (`src/app/data/mock-data.ts`) e marcados com `origem = 'seed'` no banco. Cobre todos os tipos e todas as situações, com CEPs e referências variadas ("Oposto ao nº 181", "KM 14", "S/N", "Em frente à Prefeitura"). Casos de borda para a demonstração: **Entroncamento** com saúde baixa, **Orla do Rio** com efetivo bem abaixo do necessário, um equipamento no **Centro Histórico** com preventiva vencendo amanhã e um lote de câmeras Hikvision degradando. As datas de manutenção são relativas ao dia em que a seed roda.
+
+**Dados sintéticos de volume** ficam desligados: só são gerados sob demanda.
+
+```bash
+npm run sintetico -- --eventos=5000       # histórico de telemetria (não muda o estado atual)
+npm run sintetico -- --equipamentos=500   # frota extra no mapa (origem = 'sintetico')
+npm run reset                             # volta ao estado limpo
+```
+
 ## Estrutura
 
 ```txt
+server/
+├── main.ts                     # Sobe a API (porta 3000) e, se houver build, serve o painel
+├── app.ts                      # Rotas da API
+├── db.ts                       # Esquema SQLite e abertura do arquivo
+├── repository.ts               # Repositório: única camada que lê/grava o banco
+├── seed.ts, reset.ts, synthetic.ts
+└── validation.ts               # Validação dos cadastros (inclui propriedades por tipo)
 src/app/
+├── core/                       # Regras puras (sem Angular, sem banco): indicadores, cenários…
 ├── models/
 │   ├── fogo.models.ts          # Tipos do domínio (Equipment, Agent, filtros, regiões, alertas)
 │   └── equipment-schema.ts     # Rótulos, cores semânticas e schema dos campos dinâmicos por tipo
 ├── data/
 │   ├── city-map.ts             # Geometria da cidade fictícia (bairros, rio, vias) e pontos sobre as vias
-│   └── mock-data.ts            # 72 equipamentos, 24 agentes e histórico simulado por bairro
+│   └── mock-data.ts            # Seed: 54 equipamentos, 19 agentes e histórico simulado por bairro
 ├── services/
 │   ├── city-state.service.ts   # Estado global: CRUD, localStorage, filtros, KPIs, alertas, regiões, telemetria
 │   └── prediction.service.ts   # Motor preditivo explicável + aplicação das recomendações
@@ -70,7 +111,7 @@ src/app/
 - **Visão por região**: Normal (< 15%), Atenção (15–30%) ou Crítico (≥ 30%), conforme a proporção de equipamentos indisponíveis no bairro. No mapa, cada bairro é pintado com a cor correspondente (mapa coroplético).
 - **Simular telemetria em tempo real**: a cada 3 s, um equipamento falha ou se recupera e os veículos e agentes seguem pelas vias do próprio bairro, fazendo o retorno no fim do trecho; o endereço acompanha a via atual. O feed de eventos registra cada mudança.
 - **Desempenho**: o mapa é atualizado de forma incremental (`marker-sync.ts`). Cada marcador é criado uma única vez e depois só se move ou troca de ícone, com ícones compartilhados em cache.
-- **Agrupamento**: acima de 300 equipamentos visíveis, os próximos entre si viram grupos (`leaflet.markercluster`). O grupo mostra a quantidade e tem a borda na cor da pior situação que contém (furto > falha > manutenção > desativado > não instalado > operacional); passar o mouse mostra o resumo por situação. A partir do zoom 16 os grupos se desfazem. Agentes e o item selecionado (por clique ou alerta) ficam sempre fora dos grupos. A demonstração padrão, com 72 equipamentos, não usa grupos.
+- **Agrupamento**: acima de 300 equipamentos visíveis, os próximos entre si viram grupos (`leaflet.markercluster`). O grupo mostra a quantidade e tem a borda na cor da pior situação que contém (furto > falha > manutenção > desativado > não instalado > operacional); passar o mouse mostra o resumo por situação. A partir do zoom 16 os grupos se desfazem. Agentes e o item selecionado (por clique ou alerta) ficam sempre fora dos grupos. A demonstração padrão, com 54 equipamentos, não usa grupos.
 
 ## Parte 3 – Cidade Preditiva
 

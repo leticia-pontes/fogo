@@ -2,31 +2,31 @@ import { Injectable, PLATFORM_ID, computed, effect, inject, signal } from '@angu
 import { isPlatformBrowser } from '@angular/common';
 import {
   NEIGHBORHOODS,
-  NEIGHBORHOOD_HISTORY,
   buildMockAgents,
   buildMockEquipment,
   buildStressEquipment,
   daysFromToday,
 } from '../data/mock-data';
 import { stepAlongRoad } from '../data/city-map';
+import { calcularAlertas, calcularIndicadores, calcularRegioes, daysUntil } from '../core/indicators';
 import { ScenarioSnapshot } from '../core/scenarios';
 import { CityState } from '../core/state';
-import { MOBILE_TYPES, STATUS_LABELS, isUnavailable } from '../models/equipment-schema';
+import { ApiError, ServerState, api } from './api';
+import { MOBILE_TYPES, STATUS_LABELS } from '../models/equipment-schema';
 import {
   Agent,
-  AlertSeverity,
   CityEvent,
   Equipment,
   EquipmentStatus,
   OpsAlert,
   OpsFilters,
-  RegionHealth,
   RegionSummary,
 } from '../models/fogo.models';
 
-const STORAGE_KEY = 'fogo:state:v3';
+const STORAGE_KEY = 'fogo:state:v4';
+/** Espera entre a última alteração e o envio do lote ao servidor. */
+const SYNC_DEBOUNCE_MS = 250;
 const TELEMETRY_INTERVAL_MS = 3000;
-const UPCOMING_MAINTENANCE_DAYS = 7;
 
 export const EMPTY_FILTERS: OpsFilters = { type: 'all', status: 'all', neighborhood: 'all', agency: 'all' };
 
@@ -39,10 +39,13 @@ interface PersistedState {
 
 export type Selection = { kind: 'equipment' | 'agent'; id: string } | null;
 
-/** Dias entre hoje e uma data ISO (negativo = vencido). */
-export function daysUntil(isoDate: string): number {
-  return Math.round((Date.parse(isoDate) - Date.parse(daysFromToday(0))) / 86_400_000);
-}
+/**
+ * online: estado lido do servidor (SQLite) e alterações enviadas em lote para /api/sync.
+ * offline: sem servidor (ex.: deploy estático); o estado fica no localStorage como antes.
+ */
+export type PersistenceMode = 'loading' | 'online' | 'offline';
+
+export { daysUntil };
 
 @Injectable({ providedIn: 'root' })
 export class CityStateService {
@@ -65,6 +68,13 @@ export class CityStateService {
   readonly telemetryOn = signal(false);
   /** Assinaturas das ações preditivas já aplicadas (ver PredictionService). */
   readonly appliedActions = signal<ReadonlySet<string>>(new Set());
+  readonly mode = signal<PersistenceMode>('loading');
+
+  /** Última versão de cada item confirmada pelo servidor (JSON), para enviar só o que mudou. */
+  private synced = { equipment: new Map<string, string>(), agents: new Map<string, string>(), peakSurge: null as string | null };
+  private syncTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Itens alterados pela telemetria simulada desde o último envio (origem = 'telemetria'). */
+  private readonly telemetryTouched = new Set<string>();
 
   readonly selectedEquipment = computed(() => {
     const sel = this.selection();
@@ -97,98 +107,13 @@ export class CityStateService {
     );
   });
 
-  readonly kpis = computed(() => {
-    const list = this.filteredEquipment();
-    const installed = list.filter((e) => e.status !== 'not_installed');
-    const operational = installed.filter((e) => e.status === 'operational').length;
-    const agents = this.filteredAgents();
-    return {
-      total: list.length,
-      operational,
-      unavailable: installed.length - operational,
-      notInstalled: list.length - installed.length,
-      availabilityPct: installed.length ? Math.round((operational / installed.length) * 1000) / 10 : 0,
-      activeAgents: agents.filter((a) => a.status !== 'off_duty').length,
-      inDispatch: agents.filter((a) => a.status === 'in_dispatch').length,
-      totalAgents: agents.length,
-    };
-  });
+  readonly kpis = computed(() => calcularIndicadores(this.filteredEquipment(), this.filteredAgents()));
 
-  readonly alerts = computed<OpsAlert[]>(() => {
-    const rank: Record<AlertSeverity, number> = { critical: 0, high: 1, warning: 2 };
-    const alerts: OpsAlert[] = [];
+  readonly alerts = computed<OpsAlert[]>(() => calcularAlertas(this.filteredEquipment(), this.filteredAgents(), this.agents()));
 
-    for (const e of this.filteredEquipment()) {
-      const reasons: { severity: AlertSeverity; text: string }[] = [];
-      if (e.status === 'stolen') reasons.push({ severity: 'critical', text: 'Furto detectado' });
-      if (e.status === 'malfunction') reasons.push({ severity: 'critical', text: 'Falha grave em operação' });
-      if (e.maintenance.priority === 'immediate' && e.status !== 'stolen') {
-        reasons.push({ severity: 'high', text: 'Manutenção imediata necessária' });
-      }
-      if (e.maintenance.nextDate && e.status !== 'stolen' && e.status !== 'deactivated') {
-        const days = daysUntil(e.maintenance.nextDate);
-        if (days < 0) reasons.push({ severity: 'high', text: `Manutenção vencida há ${-days} dia(s)` });
-        else if (days <= UPCOMING_MAINTENANCE_DAYS) {
-          reasons.push({ severity: 'warning', text: days === 0 ? 'Manutenção prevista para hoje' : `Manutenção em ${days} dia(s)` });
-        }
-      }
-      if (reasons.length === 0) continue;
-
-      reasons.sort((a, b) => rank[a.severity] - rank[b.severity]);
-      alerts.push({
-        id: `AL-${e.id}`,
-        target: { kind: 'equipment', id: e.id },
-        severity: reasons[0].severity,
-        title: `${reasons[0].text} · ${e.serialNumber}`,
-        detail: [...reasons.slice(1).map((r) => r.text), `${e.location.street} (${e.location.reference}), ${e.location.neighborhood}`].join(' · '),
-      });
-    }
-
-    // Agente fora de turno em bairro cujo efetivo em serviço não cobre o necessário no pico.
-    const onDuty = new Map<string, number>();
-    for (const a of this.agents()) {
-      if (a.status !== 'off_duty') onDuty.set(a.neighborhood, (onDuty.get(a.neighborhood) ?? 0) + 1);
-    }
-    for (const a of this.filteredAgents()) {
-      const required = NEIGHBORHOOD_HISTORY[a.neighborhood]?.requiredAgentsAtPeak ?? 0;
-      const present = onDuty.get(a.neighborhood) ?? 0;
-      if (a.status !== 'off_duty' || present >= required) continue;
-      alerts.push({
-        id: `AL-${a.id}`,
-        target: { kind: 'agent', id: a.id },
-        severity: 'warning',
-        title: `Agente sem atividade em bairro com déficit · ${a.name}`,
-        detail: `${a.badgeNumber} · ${a.neighborhood}: ${present} em serviço para ${required} necessários no pico`,
-      });
-    }
-
-    return alerts.sort((a, b) => rank[a.severity] - rank[b.severity]);
-  });
-
-  readonly regions = computed<RegionSummary[]>(() => {
-    const f = this.filters();
-    const equipment = this.filteredEquipment();
-    const agents = this.filteredAgents();
-
-    return NEIGHBORHOODS.filter((n) => f.neighborhood === 'all' || n.name === f.neighborhood).map((n) => {
-      const installed = equipment.filter((e) => e.location.neighborhood === n.name && e.status !== 'not_installed');
-      const unavailable = installed.filter((e) => isUnavailable(e.status)).length;
-      const ratio = installed.length ? unavailable / installed.length : 0;
-      const health: RegionHealth = ratio >= 0.3 ? 'critical' : ratio >= 0.15 ? 'attention' : 'normal';
-      return {
-        neighborhood: n.name,
-        zone: n.zone,
-        lat: n.lat,
-        lng: n.lng,
-        total: installed.length,
-        operational: installed.length - unavailable,
-        unavailable,
-        unavailableRatio: ratio,
-        health,
-        activeAgents: agents.filter((a) => a.neighborhood === n.name && a.status !== 'off_duty').length,
-      };
-    });
-  });
+  readonly regions = computed<RegionSummary[]>(() =>
+    calcularRegioes(this.filteredEquipment(), this.filteredAgents(), this.filters().neighborhood)
+  );
 
   constructor() {
     const saved = this.load();
@@ -210,12 +135,110 @@ export class CityStateService {
         scenarioSnapshot: this.scenarioSnapshot(),
       };
       if (!this.isBrowser || this.stressCount) return;
+      if (this.mode() === 'online') {
+        this.scheduleSync();
+        return;
+      }
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
       } catch {
         // Armazenamento indisponível (modo privado): segue apenas em memória.
       }
     });
+
+    void this.connect();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Servidor (SQLite via API)
+  // ---------------------------------------------------------------------------
+
+  /** Carrega o estado do servidor; sem servidor, segue no modo offline (localStorage). */
+  async connect(): Promise<void> {
+    if (!this.isBrowser || this.stressCount) {
+      this.mode.set('offline');
+      return;
+    }
+    try {
+      this.applyServerState(await api<ServerState>('GET', '/estado'));
+      this.mode.set('online');
+    } catch {
+      // Sem servidor: o cabeçalho mostra "modo offline" e o estado segue no localStorage.
+      this.mode.set('offline');
+    }
+  }
+
+  /** Substitui o estado pelo que o servidor devolveu (após leituras, cenários e ações). */
+  applyServerState(state: ServerState): void {
+    this.equipment.set(state.equipment);
+    this.agents.set(state.agents);
+    this.peakSurge.set(state.peakSurge);
+    this.scenarioSnapshot.set(state.scenarioSnapshot);
+    this.synced = {
+      equipment: new Map(state.equipment.map((e) => [e.id, JSON.stringify(e)])),
+      agents: new Map(state.agents.map((a) => [a.id, JSON.stringify(a)])),
+      peakSurge: state.peakSurge,
+    };
+    if (this.selection() && !this.selectedEquipment() && !this.selectedAgent()) this.selection.set(null);
+  }
+
+  /**
+   * Executa uma ação no servidor (cenário, simulação aplicada, reset) e adota o estado devolvido.
+   * Antes, envia as alterações locais pendentes para não perdê-las.
+   */
+  async serverAction<T extends ServerState>(path: string, body?: unknown): Promise<T> {
+    if (this.syncTimer) clearTimeout(this.syncTimer);
+    await this.flushSync();
+    const result = await api<T>('POST', path, body);
+    this.applyServerState(result);
+    return result;
+  }
+
+  private scheduleSync(): void {
+    if (this.syncTimer) clearTimeout(this.syncTimer);
+    this.syncTimer = setTimeout(() => void this.flushSync(), SYNC_DEBOUNCE_MS);
+  }
+
+  /** Envia ao servidor só o que mudou desde a última confirmação. */
+  async flushSync(): Promise<void> {
+    this.syncTimer = null;
+    const equipment = this.equipment().filter((e) => this.synced.equipment.get(e.id) !== JSON.stringify(e));
+    const agents = this.agents().filter((a) => this.synced.agents.get(a.id) !== JSON.stringify(a));
+    const eqIds = new Set(this.equipment().map((e) => e.id));
+    const agIds = new Set(this.agents().map((a) => a.id));
+    const removed = {
+      equipment: [...this.synced.equipment.keys()].filter((id) => !eqIds.has(id)),
+      agents: [...this.synced.agents.keys()].filter((id) => !agIds.has(id)),
+    };
+    const peakChanged = this.peakSurge() !== this.synced.peakSurge;
+    if (!equipment.length && !agents.length && !removed.equipment.length && !removed.agents.length && !peakChanged) return;
+
+    const fromTelemetry = (id: string) => this.telemetryTouched.has(id);
+    const batches = [
+      { origem: 'telemetria', equipment: equipment.filter((e) => fromTelemetry(e.id)), agents: agents.filter((a) => fromTelemetry(a.id)) },
+      {
+        origem: 'usuario',
+        equipment: equipment.filter((e) => !fromTelemetry(e.id)),
+        agents: agents.filter((a) => !fromTelemetry(a.id)),
+        removed,
+        ...(peakChanged ? { peakSurge: this.peakSurge() } : {}),
+      },
+    ];
+    this.telemetryTouched.clear();
+    try {
+      for (const batch of batches) {
+        if (!batch.equipment.length && !batch.agents.length && !('removed' in batch && (removed.equipment.length || removed.agents.length || peakChanged))) continue;
+        await api('POST', '/sync', batch);
+        for (const e of batch.equipment) this.synced.equipment.set(e.id, JSON.stringify(e));
+        for (const a of batch.agents) this.synced.agents.set(a.id, JSON.stringify(a));
+      }
+      for (const id of removed.equipment) this.synced.equipment.delete(id);
+      for (const id of removed.agents) this.synced.agents.delete(id);
+      if (peakChanged) this.synced.peakSurge = this.peakSurge();
+    } catch (err) {
+      const detail = err instanceof ApiError && Array.isArray(err.details) ? `: ${err.details.slice(0, 2).join('; ')}` : '';
+      this.log(`Falha ao salvar no servidor (${(err as Error).message}${detail})`, 'bad', 'system');
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -299,10 +322,20 @@ export class CityStateService {
     this.appliedActions.update((set) => new Set([...set, ...signatures]));
   }
 
-  resetToMock(): void {
+  /** Volta à seed de exemplo: no modo online recria o banco (POST /api/reset). */
+  async resetToMock(): Promise<void> {
     this.stopTelemetry();
-    this.equipment.set(buildMockEquipment());
-    this.agents.set(buildMockAgents());
+    if (this.mode() === 'online') {
+      try {
+        await this.serverAction('/reset');
+      } catch (err) {
+        this.log(`Falha ao restaurar no servidor: ${(err as Error).message}`, 'bad', 'system');
+        return;
+      }
+    } else {
+      this.equipment.set(buildMockEquipment());
+      this.agents.set(buildMockAgents());
+    }
     this.selection.set(null);
     this.filters.set(EMPTY_FILTERS);
     this.events.set([]);
@@ -358,6 +391,7 @@ export class CityStateService {
       const next: EquipmentStatus = degrade
         ? Math.random() < 0.6 ? 'malfunction' : 'maintenance'
         : target.status === 'malfunction' || target.status === 'stolen' ? 'maintenance' : 'operational';
+      this.telemetryTouched.add(target.id);
       this.patchEquipment([target.id], (e) => ({
         ...e,
         status: next,
@@ -379,6 +413,7 @@ export class CityStateService {
     this.equipment.update((list) =>
       list.map((e) => {
         if (e.status !== 'operational' || !MOBILE_TYPES.includes(e.type)) return e;
+        this.telemetryTouched.add(e.id);
         const moved = this.moveOnRoad(e.id, e.location.neighborhood, e.location.lat, e.location.lng);
         return moved ? { ...e, location: { ...e.location, lat: moved.lat, lng: moved.lng, street: moved.street } } : e;
       })
@@ -386,6 +421,7 @@ export class CityStateService {
     this.agents.update((list) =>
       list.map((a) => {
         if (a.status === 'off_duty') return a;
+        this.telemetryTouched.add(a.id);
         const moved = this.moveOnRoad(a.id, a.neighborhood, a.lat, a.lng);
         return moved ? { ...a, lat: moved.lat, lng: moved.lng } : a;
       })

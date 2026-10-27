@@ -105,6 +105,15 @@ import { ActiveModuleTab, UiStateService } from './services/ui-state.service';
                 }
               </div>
             }
+            @if (city.mode() !== 'loading') {
+              <span
+                class="text-[12px] px-2 py-0.5 rounded border"
+                [class]="city.mode() === 'online' ? 'border-fogo-green/50 text-fogo-green' : 'border-fogo-amber/60 text-fogo-amber'"
+                [title]="city.mode() === 'online' ? 'Dados lidos e gravados no banco SQLite pelo servidor' : 'Servidor indisponível: os dados ficam só neste navegador'"
+              >
+                {{ city.mode() === 'online' ? 'Banco conectado' : 'Modo offline' }}
+              </span>
+            }
             <div class="flex items-center gap-2 text-[15px]">
               <span class="w-2 h-2 rounded-full" [class]="city.telemetryOn() ? 'bg-fogo-green animate-pulse' : 'bg-fogo-unverified'"></span>
               <span class="text-fogo-muted">{{ city.telemetryOn() ? 'Telemetria ao vivo' : 'Telemetria pausada' }}</span>

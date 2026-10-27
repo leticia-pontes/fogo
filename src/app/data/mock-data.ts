@@ -33,24 +33,35 @@ export function daysFromToday(days: number): string {
   return date.toISOString().slice(0, 10);
 }
 
-/** Composição de equipamentos de cada bairro (radares e câmeras em dobro). */
-const SLOTS: EquipmentType[] = [
-  'radar',
-  'radar',
-  'camera',
-  'camera',
+/**
+ * Composição de cada bairro (seed enxuta: 9 equipamentos por bairro, 54 no total).
+ * Fiscalização fixa em todos os bairros; os 3 últimos espaços alternam entre os demais
+ * tipos, para que a cidade tenha todos os tipos sem inflar a base.
+ */
+const FIXED_SLOTS: EquipmentType[] = ['radar', 'radar', 'camera', 'camera', 'barrier_gate', 'parking_totem'];
+const ROTATING_SLOTS: EquipmentType[] = [
   'truck_scale',
   'autonomous_vehicle',
-  'barrier_gate',
   'transport_vehicle',
-  'parking_totem',
   'scooter',
   'agent_moto',
   'patrol_car',
+  'other',
 ];
+const ROTATING_PER_DISTRICT = 3;
+
+function districtSlots(hoodIdx: number): EquipmentType[] {
+  const rotating = Array.from(
+    { length: ROTATING_PER_DISTRICT },
+    (_, k) => ROTATING_SLOTS[(hoodIdx * ROTATING_PER_DISTRICT + k) % ROTATING_SLOTS.length]
+  );
+  return [...FIXED_SLOTS, ...rotating];
+}
+
+const SLOTS_PER_DISTRICT = FIXED_SLOTS.length + ROTATING_PER_DISTRICT;
 
 /** Equipamentos + agentes que cabem em um bairro. */
-const SPOTS_PER_DISTRICT = SLOTS.length + 6;
+const SPOTS_PER_DISTRICT = SLOTS_PER_DISTRICT + 6;
 
 const MODELS: Record<EquipmentType, [string, string][]> = {
   radar: [['Pumatronix', 'ITSCAM 400 OCR'], ['Sensys Gatso', 'T-Series RT4']],
@@ -80,33 +91,40 @@ const SERIAL_PREFIX: Record<EquipmentType, string> = {
   other: 'OUT',
 };
 
-/** Cenário inicial: Entroncamento concentra falhas, lote Hikvision degradando, Orla do Rio com furto. */
+/**
+ * Cenário inicial (chave = bairro-espaço; espaços 0–1 radar, 2–3 câmera, 4 cancela, 5 totem,
+ * 6–8 rotativos). Casos de borda para a demonstração:
+ * - Entroncamento: saúde baixa (falhas, manutenção vencida);
+ * - Orla do Rio: furto e efetivo bem abaixo do necessário (cobertura de agentes fraca);
+ * - Centro Histórico: equipamento com preventiva vencendo amanhã;
+ * - lote Hikvision (câmera do espaço 2) degradando em 3 bairros (falha em lote).
+ */
 const STATUS_OVERRIDES: Record<string, { status: EquipmentStatus; priority: MaintenancePriority; nextInDays?: number }> = {
   // Orla do Rio
   '0-1': { status: 'stolen', priority: 'immediate' },
   '0-2': { status: 'malfunction', priority: 'immediate', nextInDays: 0 },
-  '0-9': { status: 'maintenance', priority: 'scheduled', nextInDays: 2 },
+  '0-5': { status: 'maintenance', priority: 'scheduled', nextInDays: 2 },
   // Vila Esperança
   '1-0': { status: 'operational', priority: 'scheduled', nextInDays: 6 },
-  '1-6': { status: 'deactivated', priority: 'none' },
-  '1-8': { status: 'not_installed', priority: 'scheduled', nextInDays: 5 },
+  '1-4': { status: 'deactivated', priority: 'none' },
+  '1-6': { status: 'not_installed', priority: 'scheduled', nextInDays: 5 },
   // Centro Histórico
-  '2-4': { status: 'operational', priority: 'scheduled', nextInDays: 1 },
-  '2-9': { status: 'stolen', priority: 'immediate' },
+  '2-5': { status: 'stolen', priority: 'immediate' },
+  '2-6': { status: 'operational', priority: 'scheduled', nextInDays: 1 },
   // Entroncamento
   '3-0': { status: 'maintenance', priority: 'scheduled', nextInDays: -1 },
   '3-1': { status: 'malfunction', priority: 'immediate', nextInDays: 0 },
   '3-3': { status: 'operational', priority: 'scheduled', nextInDays: 3 },
-  '3-6': { status: 'malfunction', priority: 'immediate', nextInDays: 0 },
-  '3-10': { status: 'maintenance', priority: 'scheduled', nextInDays: 4 },
+  '3-4': { status: 'malfunction', priority: 'immediate', nextInDays: 0 },
+  '3-7': { status: 'maintenance', priority: 'scheduled', nextInDays: 4 },
   // Jardim Aurora
   '4-2': { status: 'malfunction', priority: 'immediate', nextInDays: 0 },
-  '4-4': { status: 'operational', priority: 'scheduled', nextInDays: -3 },
-  '4-8': { status: 'deactivated', priority: 'none' },
+  '4-5': { status: 'deactivated', priority: 'none' },
+  '4-6': { status: 'operational', priority: 'scheduled', nextInDays: -3 },
   // Cidade Universitária
   '5-2': { status: 'maintenance', priority: 'immediate', nextInDays: 1 },
-  '5-5': { status: 'not_installed', priority: 'scheduled', nextInDays: 10 },
-  '5-7': { status: 'malfunction', priority: 'immediate', nextInDays: 0 },
+  '5-3': { status: 'malfunction', priority: 'immediate', nextInDays: 0 },
+  '5-7': { status: 'not_installed', priority: 'scheduled', nextInDays: 10 },
 };
 
 function seedCustomProperties(type: EquipmentType, seed: number): CustomPropertiesByType[EquipmentType] {
@@ -166,7 +184,7 @@ export function buildMockEquipment(): Equipment[] {
 
   NEIGHBORHOODS.forEach((hood, hoodIdx) => {
     const spots = districtSpots(hoodIdx, SPOTS_PER_DISTRICT);
-    SLOTS.forEach((type, slot) => {
+    districtSlots(hoodIdx).forEach((type, slot) => {
       const spot = spots[slot];
       const override = STATUS_OVERRIDES[`${hoodIdx}-${slot}`];
       const [brand, model] = MODELS[type][type === 'camera' ? (slot === 2 ? 0 : 1) : (hoodIdx + slot) % 2];
@@ -211,14 +229,14 @@ const AGENT_NAMES = [
   'Felipe Holanda', 'Renato Bastos', 'Beatriz Meireles', 'Daniel Maciel',
 ];
 
-/** Efetivo por bairro: Orla do Rio, Entroncamento e Cidade Universitária abaixo do necessário; Centro Histórico com sobra. */
+/** Efetivo por bairro (19 agentes): Orla do Rio, Entroncamento e Cidade Universitária abaixo do necessário; Centro Histórico com sobra. */
 const AGENT_DISTRIBUTION: { neighborhood: string; statuses: AgentStatus[] }[] = [
-  { neighborhood: 'Orla do Rio', statuses: ['active', 'off_duty', 'off_duty'] },
-  { neighborhood: 'Vila Esperança', statuses: ['active', 'active', 'active', 'off_duty'] },
-  { neighborhood: 'Centro Histórico', statuses: ['active', 'active', 'active', 'active', 'active', 'active'] },
+  { neighborhood: 'Orla do Rio', statuses: ['active', 'off_duty'] },
+  { neighborhood: 'Vila Esperança', statuses: ['active', 'active', 'off_duty'] },
+  { neighborhood: 'Centro Histórico', statuses: ['active', 'active', 'active', 'active', 'active'] },
   { neighborhood: 'Entroncamento', statuses: ['active', 'off_duty'] },
-  { neighborhood: 'Jardim Aurora', statuses: ['active', 'active', 'active', 'active', 'in_dispatch'] },
-  { neighborhood: 'Cidade Universitária', statuses: ['active', 'active', 'off_duty', 'off_duty'] },
+  { neighborhood: 'Jardim Aurora', statuses: ['active', 'active', 'active', 'in_dispatch'] },
+  { neighborhood: 'Cidade Universitária', statuses: ['active', 'active', 'off_duty'] },
 ];
 
 export function buildMockAgents(): Agent[] {
@@ -235,7 +253,7 @@ export function buildMockAgents(): Agent[] {
     const hoodIdx = NEIGHBORHOODS.findIndex((n) => n.name === group.neighborhood);
     const hood = NEIGHBORHOODS[hoodIdx];
     // Agentes ocupam os pontos de via que sobraram depois dos equipamentos.
-    const spots = districtSpots(hoodIdx, SPOTS_PER_DISTRICT).slice(SLOTS.length);
+    const spots = districtSpots(hoodIdx, SPOTS_PER_DISTRICT).slice(SLOTS_PER_DISTRICT);
     group.statuses.forEach((status, k) => {
       const role = roles[idx % roles.length];
       agents.push({
@@ -343,7 +361,7 @@ function seededRandom(seed: number): () => number {
 
 export function buildStressEquipment(count: number): Equipment[] {
   const rand = seededRandom(count);
-  const types = [...new Set(SLOTS)];
+  const types = [...FIXED_SLOTS, ...ROTATING_SLOTS];
   // ~85% operacional, como numa frota real; o restante espalhado entre as demais situações.
   const statuses: EquipmentStatus[] = ['malfunction', 'maintenance', 'stolen', 'deactivated', 'not_installed'];
   const list: Equipment[] = [];
@@ -363,7 +381,7 @@ export function buildStressEquipment(count: number): Equipment[] {
       serialNumber: `${SERIAL_PREFIX[type]}-S${String(i + 1).padStart(4, '0')}`,
       brand,
       model,
-      agency: agencyFor(type, i % SLOTS.length),
+      agency: agencyFor(type, i % SLOTS_PER_DISTRICT),
       type,
       customProperties: seedCustomProperties(type, i),
       location: {

@@ -141,7 +141,7 @@ const DISTRICT_SEEDS: DistrictSeed[] = [
     center: [0.2, -2.0],
     cepPrefix: '13904',
     streets: ['Rua São Jorge', 'Rua das Acácias'],
-    references: ['Em frente à Escola Estadual', 'Nº 412', 'Ao lado da Praça da Matriz', 'Oposto ao Mercado Esperança'],
+    references: ['Em frente à Escola Estadual', 'Nº 412', 'S/N', 'Ao lado da Praça da Matriz', 'Oposto ao Mercado Esperança'],
   },
   {
     name: 'Centro Histórico',
@@ -165,7 +165,7 @@ const DISTRICT_SEEDS: DistrictSeed[] = [
     center: [-0.1, 2.25],
     cepPrefix: '13905',
     streets: ['Alameda dos Ipês', 'Rua do Mirante'],
-    references: ['Portão do Parque do Lago', 'Em frente à Feira do Sábado', 'Oposto ao nº 77', 'Mirante da Aurora'],
+    references: ['Portão do Parque do Lago', 'Em frente à Feira do Sábado', 'Oposto ao nº 77', 'S/N', 'Mirante da Aurora'],
   },
   {
     name: 'Cidade Universitária',

@@ -61,3 +61,6 @@ lerna-debug.log*
 ehthumbs.db
 Thumbs.db
 
+
+# Banco SQLite local (criado automaticamente na primeira execução)
+/data
