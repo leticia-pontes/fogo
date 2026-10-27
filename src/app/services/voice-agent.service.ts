@@ -27,6 +27,15 @@ export interface VoiceExchange {
   answer: string;
 }
 
+/** Erros do reconhecimento de voz em linguagem de gente. */
+const RECOGNITION_ERRORS: Record<string, string> = {
+  'not-allowed': 'Permissão de microfone negada. Libere o microfone no cadeado da barra de endereço.',
+  'service-not-allowed': 'O navegador bloqueou o reconhecimento de voz. Use Chrome ou Edge, ou digite a pergunta.',
+  'no-speech': 'Não ouvi nada. Toque no microfone e fale de novo.',
+  'audio-capture': 'Nenhum microfone encontrado.',
+  network: 'O reconhecimento de voz precisa de internet (o navegador transcreve o áudio num serviço online). Digite a pergunta.',
+};
+
 /** Remove acentos e caixa para comparar comandos falados. */
 function normalize(text: string): string {
   return text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -123,7 +132,8 @@ export class VoiceAgentService {
       this.interim.set(text);
     };
     rec.onerror = (e) => {
-      this.error.set(e.error === 'not-allowed' ? 'Permissão de microfone negada.' : `Erro no reconhecimento: ${e.error}`);
+      if (e.error === 'aborted') return;
+      this.error.set(RECOGNITION_ERRORS[e.error] ?? `Erro no reconhecimento de voz (${e.error}). Digite a pergunta.`);
     };
     rec.onend = () => {
       this.listening.set(false);

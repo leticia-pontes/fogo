@@ -8,7 +8,7 @@ A operação acontece em **Nova Prometeia**, uma cidade fictícia desenhada em v
 
 ## Como rodar
 
-**Pré-requisitos:** Node.js ≥ 22.13 (testado com 24.x; usa o `node:sqlite` nativo) e npm ≥ 10. O agente de voz exige Chrome ou Edge.
+**Pré-requisitos:** Node.js ≥ 22.13 (testado com 24.x; usa o `node:sqlite` nativo) e npm ≥ 10. Para **falar** com o agente de voz, use Chrome ou Edge, com internet e em `localhost`. Em outros navegadores dá para digitar as perguntas (veja [Agente de voz](#agente-de-voz-prometheus)).
 
 ```bash
 npm install
@@ -31,11 +31,16 @@ Não é preciso instalar banco nem subir servidor de mapas: o SQLite é um arqui
 
 ### Preciso de chave de API? Não.
 
-O sistema **não chama nenhum serviço de IA nem API externa** em tempo de execução, e **nenhuma variável de ambiente é obrigatória**. As únicas lidas são opcionais: `PORT` (padrão 3000) e `FOGO_DB` (caminho do banco).
+O código do sistema **não chama nenhum serviço de IA nem API externa** em tempo de execução, e **nenhuma variável de ambiente é obrigatória**. A única exceção fica por conta do navegador: a transcrição do microfone, explicada abaixo. As únicas lidas são opcionais: `PORT` (padrão 3000) e `FOGO_DB` (caminho do banco).
 
 Se você tem um `.env` com uma chave do Gemini (`GOOGLE_GENERATIVE_AI_API_KEY`), ela é herança das primeiras versões: havia uma rota serverless (`api/prometheus-triage.ts`) que pedia ao Gemini um briefing tático. Ela foi removida e trocada por regras e templates determinísticos (veja [Boletim da PROMETHEUS](#boletim-da-prometheus)). Hoje nada lê esse arquivo, então ele pode ser apagado sem efeito. O `.env` está no `.gitignore` e nunca entra no pacote de entrega.
 
-As únicas peças "inteligentes" que dependem do ambiente são do próprio navegador: a **Web Speech API** (voz do agente PROMETHEUS), que funciona no Chrome e no Edge. O mapa é desenhado em vetor localmente. A internet só é usada para baixar as fontes (Google Fonts) e o Swagger UI (jsDelivr). Sem rede, tudo funciona, só com a fonte padrão e sem a página `/api/docs`.
+A voz do agente PROMETHEUS usa a **Web Speech API**, que vem no próprio navegador. O projeto não usa chave nem serviço configurado, mas há um detalhe:
+
+- **Fala (texto → voz):** sintetizada pelo navegador, funciona offline. É o que lê o boletim e anuncia as falhas.
+- **Escuta (voz → texto):** no Chrome, o navegador envia o áudio para o serviço de transcrição do Google, e no Edge, para o da Microsoft. Precisa de internet, permissão de microfone e página em `localhost` ou HTTPS. Firefox não tem reconhecimento de voz. Em qualquer desses casos o botão do microfone fica desabilitado ou mostra o motivo, e a pergunta pode ser **digitada** no mesmo campo, com a mesma resposta falada. Detalhes e solução de problemas em [Agente de voz](#agente-de-voz-prometheus).
+
+O mapa é desenhado em vetor localmente. Fora a transcrição de voz, a internet só é usada para baixar as fontes (Google Fonts) e o Swagger UI (jsDelivr). Sem rede, todo o resto funciona, só com a fonte padrão e sem a página `/api/docs`.
 
 ## O que o sistema faz
 
@@ -100,7 +105,7 @@ O enunciado avisa que *"não será sobre quem usou mais tecnologia, mais IA ou m
 | Banco | **SQLite** via `node:sqlite` (nativo do Node 22+) | Arquivo único, zero instalação, nada nativo para compilar |
 | Regras | **TypeScript puro** em `src/app/core/` | As mesmas funções rodam no navegador e no servidor, e são testadas sem tela nem banco |
 | Testes | **Vitest** | Rápido, e o mesmo runner do `ng test` |
-| Voz | **Web Speech API** | Fala e escuta nativas do navegador, sem serviço externo |
+| Voz | **Web Speech API** | Fala e escuta nativas do navegador, sem chave nem integração no código. A fala funciona offline; a escuta usa o serviço de transcrição do próprio navegador (Google no Chrome, Microsoft no Edge) |
 | Docs da API | **OpenAPI 3 + Swagger UI** (via CDN) | Documentação navegável sem nova dependência |
 
 A stack sugerida no desafio citava PostgreSQL/PostGIS e modelos de ML. Para uma solução que precisa rodar com `npm install && npm start` em qualquer máquina, SQLite e heurísticas explicáveis entregam o mesmo valor demonstrativo sem infraestrutura, e toda fórmula está documentada abaixo.
@@ -367,6 +372,59 @@ Card no topo da Central, logo abaixo dos KPIs: **Atualizar boletim**, **Copiar**
 8. a próxima melhor ação recomendada, com o impacto estimado.
 
 Sem nada crítico, o texto diz "Tudo sob controle". **Não usa LLM**: o mesmo estado e horário geram sempre o mesmo texto e nenhum número é inventado. As primeiras versões chamavam o Gemini para um briefing tático; troquei por templates para não depender de chave, de rede nem arriscar números diferentes no meio da demonstração. A ironia continua, só que agora é determinística. Rota: `GET /api/boletim`.
+
+## Agente de voz PROMETHEUS
+
+Botão redondo com o **microfone**, flutuando no canto da tela. Ele abre o painel **PROMETHEUS · Voz**: você pergunta (falando ou digitando) e a PROMETHEUS responde em texto e em voz alta, com os números do estado atual da cidade.
+
+### Como usar
+
+1. Clique no botão do microfone para abrir o painel.
+2. Toque no **microfone** e fale, ou **digite** a pergunta no campo e tecle Enter. Os chips de sugestão também funcionam com um clique.
+3. Enquanto você fala, a transcrição parcial aparece em itálico. Ao terminar a frase, a resposta é mostrada e lida em voz alta.
+4. **Anunciar falhas** (caixa no topo do painel): com a telemetria ligada, a PROMETHEUS avisa em voz alta cada equipamento que entra em mau funcionamento.
+
+### O que dá para perguntar
+
+As perguntas são interpretadas por palavras-chave, sem LLM. Não importa a forma exata da frase, nem acento ou maiúscula.
+
+| Pergunte algo como | Resposta |
+| --- | --- |
+| "Resumo da cidade", "como está a cidade?" | Total de equipamentos, operacionais, indisponíveis, disponibilidade, alertas e previsões |
+| "Quais os alertas?", "quantos alertas?" | Total de alertas, quantos são críticos e qual é o primeiro |
+| "Previsão mais crítica", "qual o maior risco?" | Quantas previsões ativas, a mais crítica, o escore de risco e a recomendação |
+| "Como está o Entroncamento?" (qualquer bairro) | Situação do bairro, equipamentos indisponíveis, agentes em serviço e a previsão dele |
+| "Quantos agentes?" | Agentes em serviço, em despacho e cadastrados |
+| "Aplicar recomendação" | **Aplica** a recomendação pendente mais crítica da Cidade Preditiva |
+| "Iniciar telemetria" / "parar telemetria" | Liga ou desliga a telemetria em tempo real |
+| "Ajuda" | Lista o que dá para perguntar |
+
+### Requisitos: o que funciona onde
+
+A voz usa a **Web Speech API**, que vem no próprio navegador. O projeto não tem chave nem integração própria para isso, mas as duas metades se comportam de forma diferente:
+
+| | Fala (texto → voz) | Escuta (voz → texto) |
+| --- | --- | --- |
+| Usada em | Respostas do agente, **Ouvir** do boletim, anúncio de falhas | Botão do microfone |
+| Quem processa | O próprio navegador/sistema operacional | **Serviço online do navegador**: Google no Chrome, Microsoft no Edge. O áudio sai da máquina |
+| Precisa de internet | Não | **Sim** |
+| Navegadores | Chrome, Edge, Firefox, Safari | **Chrome e Edge** (Firefox não tem; no Brave costuma falhar com erro de rede) |
+| Outras condições | Uma voz em português instalada (sem ela, o navegador usa a voz padrão) | **Permissão de microfone** e página em `localhost` ou **HTTPS** |
+
+**Sem microfone, sem internet ou noutro navegador**, o agente continua funcionando: digite a pergunta e a resposta sai em texto e em voz do mesmo jeito.
+
+### Se o microfone não funcionar
+
+| Mensagem no painel | Causa | O que fazer |
+| --- | --- | --- |
+| Botão do microfone desabilitado | O navegador não tem reconhecimento de voz | Use Chrome ou Edge, ou digite |
+| "Permissão de microfone negada…" | O microfone foi bloqueado para o site | Clique no cadeado da barra de endereço → Microfone → Permitir, e recarregue |
+| "O reconhecimento de voz precisa de internet…" | Sem rede, ou o serviço do navegador bloqueado (comum no Brave) | Conecte-se ou digite a pergunta |
+| "Não ouvi nada…" | Silêncio ou microfone mudo | Verifique o microfone de entrada do sistema e fale logo após tocar |
+| "Nenhum microfone encontrado." | Não há dispositivo de captura | Conecte um microfone ou digite |
+| Nada acontece ao abrir pelo IP da rede (`http://192.168…`) | O navegador só libera o microfone em `localhost` ou HTTPS | Abra por `http://localhost:4200` (ou `:3000`) |
+
+O código fica em `services/voice-agent.service.ts` (reconhecimento, síntese e respostas) e `components/voice-agent/` (painel).
 
 ## Testes
 
