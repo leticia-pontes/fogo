@@ -245,6 +245,6 @@ export class BulletinCardComponent {
     const b = this.bulletin();
     if (!b) return;
     if (this.voice.speaking()) this.voice.stopSpeaking();
-    else this.voice.speak(b.texto, 1.35); // boletim é longo: mais rápido que as respostas curtas
+    else this.voice.speak(b.texto);
   }
 }
