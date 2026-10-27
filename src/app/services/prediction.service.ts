@@ -1,7 +1,8 @@
 import { Injectable, computed, inject } from '@angular/core';
 import { NEIGHBORHOODS, NEIGHBORHOOD_HISTORY, daysFromToday } from '../data/mock-data';
-import { STATUS_LABELS, isUnavailable } from '../models/equipment-schema';
-import { Agent, Equipment, EquipmentType, MaintenancePriority } from '../models/fogo.models';
+import { STATUS_LABELS } from '../models/equipment-schema';
+import { Agent, Equipment, MaintenancePriority } from '../models/fogo.models';
+import { RISK_HIGH, SURGE_FLOW_FACTOR, collapseStats } from '../core/analysis';
 import { CityStateService, daysUntil } from './city-state.service';
 
 export type PredictionKind = 'traffic_collapse' | 'batch_failure' | 'staff_reinforcement' | 'security_patrol';
@@ -27,12 +28,7 @@ export interface Prediction {
   actions: PredictionAction[];
 }
 
-const ENFORCEMENT_TYPES: EquipmentType[] = ['radar', 'camera', 'barrier_gate'];
-const MAX_PEAK_FLOW = Math.max(...Object.values(NEIGHBORHOOD_HISTORY).map((h) => h.peakFlowVehiclesPerHour));
-const COLLAPSE_THRESHOLD = 55;
-/** Véspera de pico (cenário de homologação): fluxo 40% acima da média e mais efetivo necessário. */
-const SURGE_FLOW_FACTOR = 1.4;
-const SURGE_EXTRA_AGENTS = 2;
+const COLLAPSE_THRESHOLD = RISK_HIGH;
 const SECURITY_ROLES: Agent['role'][] = ['municipal_guard', 'military_police'];
 
 export function actionSignature(action: PredictionAction): string {
@@ -102,27 +98,7 @@ export class PredictionService {
    * prioridade no remanejamento dos agentes excedentes.
    */
   private neighborhoodPredictions(equipment: Equipment[], agents: Agent[], surge: string | null): Prediction[] {
-    const stats = NEIGHBORHOODS.map((n) => {
-      const base = NEIGHBORHOOD_HISTORY[n.name];
-      const surging = surge === n.name;
-      const history = surging
-        ? {
-            peakWindow: 'nas próximas 2 horas (véspera de pico)',
-            peakFlowVehiclesPerHour: Math.round(base.peakFlowVehiclesPerHour * SURGE_FLOW_FACTOR),
-            incidentsPerWeek: base.incidentsPerWeek,
-            requiredAgentsAtPeak: base.requiredAgentsAtPeak + SURGE_EXTRA_AGENTS,
-          }
-        : base;
-      const enforcement = equipment.filter(
-        (e) => e.location.neighborhood === n.name && ENFORCEMENT_TYPES.includes(e.type) && e.status !== 'not_installed'
-      );
-      const down = enforcement.filter((e) => isUnavailable(e.status));
-      const present = agents.filter((a) => a.neighborhood === n.name && onDuty(a)).length;
-      const deficit = Math.max(0, history.requiredAgentsAtPeak - present);
-      const flowScore = Math.min(30, Math.round((history.peakFlowVehiclesPerHour / MAX_PEAK_FLOW) * 30));
-      const collapseScore = Math.min(45, down.length * 15) + flowScore + Math.min(25, deficit * 10);
-      return { n, history, surging, enforcement, down, present, deficit, collapseScore };
-    }).sort((a, b) => b.collapseScore - a.collapseScore);
+    const stats = collapseStats(equipment, agents, surge).sort((a, b) => b.collapseScore - a.collapseScore);
 
     // Excedente de cada bairro (agentes em serviço acima do necessário no pico).
     const surplus = new Map(

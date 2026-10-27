@@ -128,4 +128,29 @@ describe('API + SQLite', () => {
     expect(reset.agents).toEqual(initial.agents);
     expect(reset.scenarioSnapshot).toBeNull();
   });
+
+  it('simulação não grava; aplicar grava, audita e devolve o novo estado', async () => {
+    const before = (await call('GET', '/estado')).data;
+    const acao = { tipo: 'DESATIVAR_EQUIPAMENTO', equipamentoId: 'EQ-003' };
+    const sim = await call('POST', '/simulacao', { acao });
+    expect(sim.status).toBe(200);
+    expect(sim.data.diferencas.length).toBeGreaterThan(0);
+    expect((await call('GET', '/estado')).data).toEqual(before);
+
+    const applied = await call('POST', '/acoes/aplicar', { acao });
+    expect(applied.data.equipment.find((e: Equipment) => e.id === 'EQ-003').status).toBe('deactivated');
+    expect(applied.data.simulacao.descricao).toContain('Desativar');
+    const [audit] = (await call('GET', '/auditoria?limite=1')).data;
+    expect(audit).toMatchObject({ acao: 'DESATIVAR_EQUIPAMENTO', autor: 'gestor' });
+    expect(audit.antes.equipamentos[0].status).not.toBe('deactivated');
+    expect(audit.depois.equipamentos[0].status).toBe('deactivated');
+  });
+
+  it('recomendações vêm ordenadas e a ação inválida é rejeitada', async () => {
+    const recs = (await call<{ ganho: number }[]>('GET', '/recomendacoes?topN=3')).data;
+    expect(recs).toHaveLength(3);
+    expect(recs[0].ganho).toBeGreaterThanOrEqual(recs[2].ganho);
+    expect((await call('POST', '/simulacao', { acao: { tipo: 'X' } })).status).toBe(400);
+    expect((await call('POST', '/simulacao', { acao: { tipo: 'FALHA_EQUIPAMENTO', equipamentoId: 'nada' } })).status).toBe(400);
+  });
 });

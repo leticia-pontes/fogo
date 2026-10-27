@@ -1,6 +1,7 @@
 import {
   AfterViewInit,
   Component,
+  computed,
   ElementRef,
   OnDestroy,
   PLATFORM_ID,
@@ -42,6 +43,12 @@ import {
 import { CityStateService, EMPTY_FILTERS, daysUntil } from '../../services/city-state.service';
 import { UiStateService } from '../../services/ui-state.service';
 import { MarkerSpec, MarkerSync, markerRank } from './marker-sync';
+import { SimulatorPanelComponent } from '../simulator/simulator-panel.component';
+import { SimulationService } from '../../services/simulation.service';
+import { calcularRisco, calcularSaudePorRegiao } from '../../core/analysis';
+import { calcularCobertura, coverageSources } from '../../core/coverage';
+import { Acao, Simulacao } from '../../core/simulation';
+import { daysFromToday } from '../../data/mock-data';
 
 const SELECT_CLASS =
   'w-full py-2 px-2.5 bg-fogo-bg border border-fogo-border focus:border-fogo-ember rounded-lg text-sm text-fogo-sand outline-none';
@@ -49,6 +56,7 @@ const SELECT_CLASS =
 @Component({
   selector: 'app-ops-center',
   standalone: true,
+  imports: [SimulatorPanelComponent],
   template: `
     <div class="p-4 lg:p-5 space-y-4 max-w-[1800px] mx-auto">
       <!-- Filtros reativos -->
@@ -148,6 +156,21 @@ const SELECT_CLASS =
       <div class="grid grid-cols-1 xl:grid-cols-12 gap-4">
         <div class="xl:col-span-8 relative rounded-xl border border-fogo-border overflow-hidden h-[460px] xl:h-[580px]">
           <div #mapEl class="absolute inset-0 z-0"></div>
+          <div class="absolute top-3 right-3 z-[400] flex flex-col items-end gap-1.5 text-[12px]">
+            <button type="button" (click)="showBlind.set(!showBlind())" [attr.aria-pressed]="showBlind()" class="map-toggle" [class.map-toggle-on]="showBlind()">
+              ▦ Pontos cegos ({{ coverage().blindSpots.length }} · {{ coverage().coveragePct.toLocaleString('pt-BR') }}% coberto)
+            </button>
+            <button type="button" (click)="showRadii.set(!showRadii())" [attr.aria-pressed]="showRadii()" class="map-toggle" [class.map-toggle-on]="showRadii()">
+              ◎ Raios de cobertura
+            </button>
+            @if (sim.result(); as r) {
+              <span class="map-toggle map-toggle-on !border-fogo-ember">
+                Simulação: itens afetados com halo laranja
+                @if (r.novosPontosCegos.length) { · <b class="text-fogo-red">{{ r.novosPontosCegos.length }} novos pontos cegos</b> }
+                @if (r.pontosCegosRecuperados.length) { · <b class="text-fogo-green">{{ r.pontosCegosRecuperados.length }} recuperados</b> }
+              </span>
+            }
+          </div>
           <div class="absolute bottom-3 left-3 z-[400] w-[400px] max-w-[calc(100%-1.5rem)] bg-fogo-panel/95 border border-fogo-border rounded-lg text-[12px] text-fogo-sand">
             <button
               type="button"
@@ -256,7 +279,13 @@ const SELECT_CLASS =
                 </dl>
               </div>
             </div>
-            <div class="p-3 border-t border-fogo-border">
+            <div class="p-3 border-t border-fogo-border space-y-2">
+              <p class="text-xs text-fogo-muted">E se…? (simula sem aplicar)</p>
+              <div class="grid grid-cols-3 gap-2">
+                <button type="button" (click)="simulateEquipment('FALHA_EQUIPAMENTO', eq.id)" class="btn-secondary text-xs">Falhar</button>
+                <button type="button" (click)="simulateEquipment('DESATIVAR_EQUIPAMENTO', eq.id)" class="btn-secondary text-xs">Desativar</button>
+                <button type="button" (click)="simulateEquipment('ANTECIPAR_MANUTENCAO', eq.id)" class="btn-secondary text-xs">Manutenção hoje</button>
+              </div>
               <button type="button" (click)="requestEdit('equipment', eq.id)" class="btn-secondary w-full">Editar no inventário</button>
             </div>
           } @else if (city.selectedAgent(); as ag) {
@@ -286,40 +315,55 @@ const SELECT_CLASS =
                 <dd class="font-mono text-xs">{{ ag.lat.toFixed(5) }}, {{ ag.lng.toFixed(5) }}</dd>
               </dl>
             </div>
-            <div class="p-3 border-t border-fogo-border">
+            <div class="p-3 border-t border-fogo-border space-y-2">
+              <button type="button" (click)="simulateRelocation(ag)" class="btn-secondary w-full">Simular realocação para o bairro de maior risco</button>
               <button type="button" (click)="requestEdit('agent', ag.id)" class="btn-secondary w-full">Editar no inventário</button>
             </div>
           } @else {
-            <div class="p-4 border-b border-fogo-border flex items-center justify-between">
-              <h2 class="text-sm font-semibold">Alertas e manutenção</h2>
-              <span class="text-xs px-2 py-0.5 rounded bg-fogo-red/20 text-fogo-red border border-fogo-red/40">
-                {{ city.alerts().length }} ativos
-              </span>
+            <div class="flex border-b border-fogo-border text-sm" role="tablist">
+              <button type="button" role="tab" [attr.aria-selected]="sim.panel() === 'alerts'" (click)="sim.panel.set('alerts')" class="flex-1 py-2.5 cursor-pointer" [class]="sim.panel() === 'alerts' ? tabOn : tabOff">
+                Alertas ({{ city.alerts().length }})
+              </button>
+              <button type="button" role="tab" [attr.aria-selected]="sim.panel() === 'simulator'" (click)="sim.panel.set('simulator')" class="flex-1 py-2.5 cursor-pointer" [class]="sim.panel() === 'simulator' ? tabOn : tabOff">
+                Simulador · melhores ações
+              </button>
             </div>
-            <div class="flex-1 overflow-y-auto p-3 space-y-2">
-              @for (alert of city.alerts(); track alert.id) {
-                <button
-                  type="button"
-                  (click)="city.selection.set(alert.target)"
-                  class="w-full text-left rounded-lg border p-3 bg-fogo-bg hover:border-fogo-ember cursor-pointer"
-                  [class]="alert.severity === 'critical' ? 'border-fogo-red/60' : alert.severity === 'high' ? 'border-fogo-amber/60' : 'border-fogo-border'"
-                >
-                  <span
-                    class="text-[12px] font-semibold uppercase tracking-wide"
-                    [class]="alert.severity === 'critical' ? 'text-fogo-red' : alert.severity === 'high' ? 'text-fogo-amber' : 'text-fogo-muted'"
+            @if (sim.panel() === 'simulator') {
+              <div class="flex-1 overflow-y-auto">
+                <app-simulator-panel />
+              </div>
+            } @else {
+              <div class="p-4 border-b border-fogo-border flex items-center justify-between">
+                <h2 class="text-sm font-semibold">Alertas e manutenção</h2>
+                <span class="text-xs px-2 py-0.5 rounded bg-fogo-red/20 text-fogo-red border border-fogo-red/40">
+                  {{ city.alerts().length }} ativos
+                </span>
+              </div>
+              <div class="flex-1 overflow-y-auto p-3 space-y-2">
+                @for (alert of city.alerts(); track alert.id) {
+                  <button
+                    type="button"
+                    (click)="city.selection.set(alert.target)"
+                    class="w-full text-left rounded-lg border p-3 bg-fogo-bg hover:border-fogo-ember cursor-pointer"
+                    [class]="alert.severity === 'critical' ? 'border-fogo-red/60' : alert.severity === 'high' ? 'border-fogo-amber/60' : 'border-fogo-border'"
                   >
-                    {{ alert.severity === 'critical' ? 'Crítico' : alert.severity === 'high' ? 'Alta' : 'Preventiva' }}{{ alert.target.kind === 'agent' ? ' · Agente' : '' }}
-                  </span>
-                  <p class="text-sm font-medium mt-0.5">{{ alert.title }}</p>
-                  <p class="text-xs text-fogo-muted mt-0.5">{{ alert.detail }}</p>
-                </button>
-              } @empty {
-                <p class="text-center text-sm text-fogo-muted py-10">Nenhum alerta na visão atual.</p>
-              }
-            </div>
-            <p class="px-4 py-2 border-t border-fogo-border text-[12px] text-fogo-muted">
-              Clique em um alerta ou marcador para ver os detalhes.
-            </p>
+                    <span
+                      class="text-[12px] font-semibold uppercase tracking-wide"
+                      [class]="alert.severity === 'critical' ? 'text-fogo-red' : alert.severity === 'high' ? 'text-fogo-amber' : 'text-fogo-muted'"
+                    >
+                      {{ alert.severity === 'critical' ? 'Crítico' : alert.severity === 'high' ? 'Alta' : 'Preventiva' }}{{ alert.target.kind === 'agent' ? ' · Agente' : '' }}
+                    </span>
+                    <p class="text-sm font-medium mt-0.5">{{ alert.title }}</p>
+                    <p class="text-xs text-fogo-muted mt-0.5">{{ alert.detail }}</p>
+                  </button>
+                } @empty {
+                  <p class="text-center text-sm text-fogo-muted py-10">Nenhum alerta na visão atual.</p>
+                }
+              </div>
+              <p class="px-4 py-2 border-t border-fogo-border text-[12px] text-fogo-muted">
+                Clique em um alerta ou marcador para ver os detalhes.
+              </p>
+            }
           }
         </aside>
       </div>
@@ -356,11 +400,18 @@ const SELECT_CLASS =
                   <span>{{ r.unavailable }}/{{ r.total }} indisponíveis ({{ (r.unavailableRatio * 100).toFixed(0) }}%)</span>
                   <span>{{ r.activeAgents }} agente(s)</span>
                 </div>
+                @if (regionIndex().get(r.neighborhood); as idx) {
+                  <div class="grid grid-cols-3 gap-1 text-[12px] pt-1 border-t border-fogo-border/60">
+                    <span title="Índice de saúde 0–100 (disponibilidade, manutenção, alertas, efetivo)">Saúde <b class="font-mono" [style.color]="idx.health >= 75 ? healthColors.normal : idx.health >= 55 ? healthColors.attention : healthColors.critical">{{ idx.health }}</b></span>
+                    <span title="Risco 0–100 no próximo pico (colapso viário + pontos cegos)">Risco <b class="font-mono" [style.color]="idx.level === 'ALTO' ? healthColors.critical : idx.level === 'MEDIO' ? healthColors.attention : healthColors.normal">{{ idx.risk }}</b></span>
+                    <span title="Área do bairro coberta por equipamentos operacionais ou agentes em serviço">Cobertura <b class="font-mono">{{ idx.coverage }}%</b></span>
+                  </div>
+                }
               </button>
             }
           </div>
           <p class="text-[12px] text-fogo-muted">
-            Critério: indisponíveis ÷ instalados – Normal &lt; 15%, Atenção 15–30%, Crítico ≥ 30%.
+            Critério da cor: indisponíveis ÷ instalados – Normal &lt; 15%, Atenção 15–30%, Crítico ≥ 30%. Saúde, risco e cobertura: fórmulas no README.
           </p>
         </section>
 
@@ -391,6 +442,8 @@ const SELECT_CLASS =
     .legend-cluster { @apply inline-flex items-center justify-center w-6 h-6 rounded-full shrink-0 border-2 border-fogo-red text-[10px] not-italic font-bold; }
     .detail-grid { @apply grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm; }
     .detail-grid dt { @apply text-fogo-muted; }
+    .map-toggle { @apply px-2.5 py-1 rounded-lg bg-fogo-panel/95 border border-fogo-border text-fogo-sand cursor-pointer hover:border-fogo-ember; }
+    .map-toggle-on { @apply border-fogo-ember text-fogo-ember; }
     .btn-secondary { @apply py-2 px-3 rounded-lg bg-fogo-bg border border-fogo-border text-sm hover:border-fogo-ember cursor-pointer; }
   `,
 })
@@ -398,7 +451,25 @@ export class OpsCenterComponent implements AfterViewInit, OnDestroy {
   @ViewChild('mapEl', { static: true }) mapEl!: ElementRef<HTMLDivElement>;
 
   readonly city = inject(CityStateService);
+  readonly sim = inject(SimulationService);
   private readonly ui = inject(UiStateService);
+  readonly showBlind = signal(false);
+  readonly showRadii = signal(false);
+  /** Cobertura da cidade inteira (independe dos filtros: é uma propriedade física da malha). */
+  readonly coverage = computed(() => calcularCobertura({ equipment: this.city.equipment(), agents: this.city.agents() }));
+  readonly regionIndex = computed(() => {
+    const state = { equipment: this.city.equipment(), agents: this.city.agents(), peakSurge: this.city.peakSurge() };
+    const coverage = this.coverage();
+    const health = calcularSaudePorRegiao(state);
+    return new Map(
+      calcularRisco(state, { coverage }).map((r) => [
+        r.neighborhood,
+        { risk: r.risk, level: r.level, health: health.find((h) => h.neighborhood === r.neighborhood)!.health, coverage: coverage.byNeighborhood[r.neighborhood].pct },
+      ])
+    );
+  });
+  readonly tabOn = 'text-fogo-ember font-semibold border-b-2 border-fogo-ember';
+  readonly tabOff = 'text-fogo-muted hover:text-fogo-sand border-b-2 border-transparent';
   private readonly platformId = inject(PLATFORM_ID);
 
   readonly selectClass = SELECT_CLASS;
@@ -427,6 +498,8 @@ export class OpsCenterComponent implements AfterViewInit, OnDestroy {
   private L: typeof Leaflet | null = null;
   private map: Leaflet.Map | null = null;
   private districtLayer: Leaflet.LayerGroup | null = null;
+  /** Pontos cegos, raios de cobertura e células alteradas pela simulação. */
+  private coverageLayer: Leaflet.LayerGroup | null = null;
   private cityBounds: Leaflet.LatLngBounds | null = null;
   private readonly mapReady = signal(false);
   /** Agentes e o item selecionado: sempre visíveis, fora dos grupos. */
@@ -442,7 +515,17 @@ export class OpsCenterComponent implements AfterViewInit, OnDestroy {
       const agents = this.city.filteredAgents();
       const regions = this.city.regions();
       const selectedId = this.city.selection()?.id ?? null;
-      if (this.mapReady()) this.render(equipment, agents, regions, selectedId);
+      const highlighted = this.sim.highlighted();
+      if (this.mapReady()) this.render(equipment, agents, regions, selectedId, highlighted);
+    });
+
+    // Camadas de cobertura (ligáveis) e células que a simulação cria ou recupera.
+    effect(() => {
+      const coverage = this.coverage();
+      const showBlind = this.showBlind();
+      const showRadii = this.showRadii();
+      const result = this.sim.result();
+      if (this.mapReady()) this.renderCoverage(coverage, showBlind, showRadii, result);
     });
 
     // Centraliza o mapa apenas quando a seleção muda (não a cada tick de telemetria).
@@ -502,6 +585,7 @@ export class OpsCenterComponent implements AfterViewInit, OnDestroy {
     this.drawBaseMap(L, this.map);
 
     this.districtLayer = L.layerGroup().addTo(this.map);
+    this.coverageLayer = L.layerGroup().addTo(this.map);
     const clusterGroup = L.markerClusterGroup({
       disableClusteringAtZoom: 16,
       maxClusterRadius: 50,
@@ -543,6 +627,19 @@ export class OpsCenterComponent implements AfterViewInit, OnDestroy {
 
   setAgentStatus(agent: Agent, value: string): void {
     this.city.upsertAgent({ ...agent, status: value as AgentStatus });
+  }
+
+  simulateEquipment(tipo: 'FALHA_EQUIPAMENTO' | 'DESATIVAR_EQUIPAMENTO' | 'ANTECIPAR_MANUTENCAO', equipamentoId: string): void {
+    const acao: Acao = tipo === 'ANTECIPAR_MANUTENCAO' ? { tipo, equipamentoId, novaData: daysFromToday(0) } : { tipo, equipamentoId };
+    void this.sim.open(acao);
+  }
+
+  /** Destino sugerido: o bairro de maior risco que não é o do próprio agente. */
+  simulateRelocation(agent: Agent): void {
+    const target = calcularRisco(this.city.snapshot())
+      .filter((r) => r.neighborhood !== agent.neighborhood)
+      .sort((a, b) => b.risk - a.risk)[0];
+    if (target) void this.sim.open({ tipo: 'REALOCAR_AGENTES', agentes: [agent.id], regiaoDestino: target.neighborhood });
   }
 
   requestEdit(kind: 'equipment' | 'agent', id: string): void {
@@ -615,7 +712,30 @@ export class OpsCenterComponent implements AfterViewInit, OnDestroy {
   }
 
   /** Bairros e marcadores são atualizados de forma incremental (ver MarkerSync). */
-  private render(equipment: Equipment[], agents: Agent[], regions: RegionSummary[], selectedId: string | null): void {
+  private renderCoverage(
+    coverage: ReturnType<typeof calcularCobertura>,
+    showBlind: boolean,
+    showRadii: boolean,
+    result: Simulacao | null
+  ): void {
+    const L = this.L;
+    if (!L || !this.coverageLayer) return;
+    this.coverageLayer.clearLayers();
+    const cell = (bounds: [[number, number], [number, number]], color: string, opacity: number, dashed = false) =>
+      L.rectangle(bounds, { pane: 'districts', color, weight: dashed ? 1.5 : 0, dashArray: dashed ? '3 3' : undefined, fillColor: color, fillOpacity: opacity, interactive: false }).addTo(this.coverageLayer!);
+    if (showBlind) for (const c of coverage.blindSpots) cell(c.bounds, '#05080a', 0.6);
+    if (showRadii) {
+      for (const src of coverageSources(this.city.equipment(), this.city.agents())) {
+        L.circle([src.lat, src.lng], { pane: 'districts', radius: src.radius, color: '#4a90c2', weight: 1, opacity: 0.6, fillOpacity: 0.05, interactive: false }).addTo(this.coverageLayer);
+      }
+    }
+    if (result) {
+      for (const c of result.novosPontosCegos) cell(c.bounds, STATUS_COLORS.malfunction, 0.45, true);
+      for (const c of result.pontosCegosRecuperados) cell(c.bounds, STATUS_COLORS.operational, 0.35, true);
+    }
+  }
+
+  private render(equipment: Equipment[], agents: Agent[], regions: RegionSummary[], selectedId: string | null, highlighted: ReadonlySet<string>): void {
     const L = this.L;
     if (!L || !this.districtLayer) return;
 
@@ -643,13 +763,13 @@ export class OpsCenterComponent implements AfterViewInit, OnDestroy {
     const grouped: MarkerSpec[] = [];
     for (const e of equipment) {
       const selected = e.id === selectedId;
-      (clustered && !selected ? grouped : plain).push({
+      (clustered && !selected && !highlighted.has(e.id) ? grouped : plain).push({
         key: `e:${e.id}`,
         lat: e.location.lat,
         lng: e.location.lng,
-        iconKey: `eq|${e.type}|${e.status}|${selected}`,
-        zIndex: selected ? 1000 : 0,
-        buildIcon: () => equipmentIcon(e.type, e.status, selected),
+        iconKey: `eq|${e.type}|${e.status}|${selected}|${highlighted.has(e.id)}`,
+        zIndex: selected ? 1000 : highlighted.has(e.id) ? 900 : 0,
+        buildIcon: () => equipmentIcon(e.type, e.status, selected, highlighted.has(e.id)),
         tooltip: `${TYPE_LABELS[e.type]} · ${STATUS_LABELS[e.status]}`,
         onClick: () => this.city.selection.set({ kind: 'equipment', id: e.id }),
         rank: STATUS_RANK[e.status],
@@ -661,9 +781,9 @@ export class OpsCenterComponent implements AfterViewInit, OnDestroy {
         key: `a:${a.id}`,
         lat: a.lat,
         lng: a.lng,
-        iconKey: `ag|${a.role}|${a.status}|${selected}`,
+        iconKey: `ag|${a.role}|${a.status}|${selected}|${highlighted.has(a.id)}`,
         zIndex: selected ? 1000 : 500,
-        buildIcon: () => agentIcon(a.role, a.status, selected),
+        buildIcon: () => agentIcon(a.role, a.status, selected, highlighted.has(a.id)),
         tooltip: `${escapeHtml(a.name)} · ${AGENT_STATUS_LABELS[a.status]}`,
         onClick: () => this.city.selection.set({ kind: 'agent', id: a.id }),
       });
@@ -714,20 +834,23 @@ function clusterIcon(L: typeof Leaflet) {
   };
 }
 
-function equipmentIcon(type: EquipmentType, status: EquipmentStatus, selected: boolean): { html: string; size: number } {
+/** Halo tracejado laranja: item afetado pela simulação em tela. */
+const SIM_HALO = 'outline:3px dashed #ff7a3d;outline-offset:3px;';
+
+function equipmentIcon(type: EquipmentType, status: EquipmentStatus, selected: boolean, highlighted = false): { html: string; size: number } {
   const color = STATUS_COLORS[status];
   const size = selected ? 40 : 30;
   return {
     size,
-    html: `<div style="width:${size}px;height:${size}px;border-radius:9999px;background:#101517;border:${selected ? 4 : 2.5}px solid ${color};display:flex;align-items:center;justify-content:center;border-style:${statusBorder(status)};${selected ? 'box-shadow:0 0 0 4px rgba(255,122,61,.45);' : ''}">${glyph(type, color)}</div>`,
+    html: `<div style="width:${size}px;height:${size}px;border-radius:9999px;background:#101517;border:${selected ? 4 : 2.5}px solid ${color};display:flex;align-items:center;justify-content:center;border-style:${statusBorder(status)};${selected ? 'box-shadow:0 0 0 4px rgba(255,122,61,.45);' : ''}${highlighted ? SIM_HALO : ''}">${glyph(type, color)}</div>`,
   };
 }
 
-function agentIcon(role: Agent['role'], status: AgentStatus, selected: boolean): { html: string; size: number } {
+function agentIcon(role: Agent['role'], status: AgentStatus, selected: boolean, highlighted = false): { html: string; size: number } {
   const abbr = role === 'military_police' ? 'PM' : role === 'municipal_guard' ? 'GM' : 'AT';
   return {
     size: 26,
-    html: `<div style="width:26px;height:26px;border-radius:5px;background:${AGENT_STATUS_COLORS[status]};border:2px solid ${selected ? '#ff7a3d' : '#101517'};color:#101517;font:700 10px/22px sans-serif;text-align:center;">${abbr}</div>`,
+    html: `<div style="width:26px;height:26px;border-radius:5px;background:${AGENT_STATUS_COLORS[status]};border:2px solid ${selected ? '#ff7a3d' : '#101517'};color:#101517;font:700 10px/22px sans-serif;text-align:center;${highlighted ? SIM_HALO : ''}">${abbr}</div>`,
   };
 }
 

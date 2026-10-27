@@ -129,6 +129,47 @@ Cada card de previsão responde a três perguntas:
 
 O modelo é **heurístico e totalmente explicável**: os pesos estão em `prediction.service.ts` e também aparecem na própria tela, em "Como as previsões são calculadas".
 
+## Simulador e próxima melhor ação
+
+No painel lateral da Central, aba **Simulador · melhores ações** (ou pelos botões **E se…?** no detalhe de um equipamento ou agente). O gestor escolhe a ação, vê o **ANTES × DEPOIS** e só depois decide **Aplicar** (com confirmação). Os itens afetados ganham um halo laranja tracejado no mapa; células que viram ponto cego ficam vermelhas e as recuperadas, verdes.
+
+| Ação | Parâmetros | Efeito simulado |
+| --- | --- | --- |
+| `FALHA_EQUIPAMENTO` | `equipamentoId` | situação → mau funcionamento, manutenção imediata |
+| `DESATIVAR_EQUIPAMENTO` | `equipamentoId` | situação → desativado |
+| `REALOCAR_AGENTES` | `agentes[]`, `regiaoDestino` | agentes vão para o destino (de folga = convocado) |
+| `ANTECIPAR_MANUTENCAO` | `equipamentoId`, `novaData` | projeção com a manutenção concluída na data: volta a operar e a próxima preventiva fica para 90 dias depois. Ao **aplicar** com data futura, só agenda |
+
+**Como funciona** (`src/app/core/`, funções puras, sem banco nem tela):
+
+- `simular(estado, acao)` faz uma cópia profunda do estado (`structuredClone`), aplica a ação na cópia e calcula, antes e depois, os indicadores gerais, a saúde e o risco de cada bairro e os pontos cegos. Devolve `{ antes, depois, diferencas, fatores, avisos }`: as diferenças vêm ordenadas pelo tamanho da mudança (ex.: "Saúde de Vila Esperança: 94 → 89 (−5)"), os fatores dizem o que entrou na conta e os avisos apontam efeitos colaterais (ex.: "Vila Esperança passa a ter risco ALTO", "Surgem 6 novos pontos cegos").
+- `recomendarAcoes(estado, { topN: 3 })` monta ações candidatas (manutenção imediata de cada equipamento em falha, manutenção, imediata ou vencida; convocar agentes de folga em bairros com déficit; realocar o excedente dos bairros de menor risco para os de déficit), roda `simular` em cada uma e ordena pelo **ganho = Σ queda de risco + 0,5 × Σ alta de saúde + 0,5 × pontos cegos recuperados**. No máximo 2 sugestões do mesmo tipo entram no top 3. Cada recomendação traz o impacto (antes → depois), a justificativa e a confiança (alta para reparo, média para realocação) com as limitações. É uma **estimativa por regras**, não uma previsão estatística.
+- `aplicarAcao(estado, acao)` produz o estado novo; a API grava, registra na auditoria quem, quando e o antes → depois dos itens afetados, e o painel se atualiza sem recarregar.
+
+Rotas: `POST /api/simulacao` (`{ acao }`, não grava nada), `GET /api/recomendacoes?topN=3`, `POST /api/acoes/aplicar` (`{ acao }`, grava e devolve o novo estado) e `GET /api/analise` (indicadores, saúde, risco e cobertura atuais).
+
+### Índice de saúde por bairro (0–100)
+
+```
+saúde = 40 × disponibilidade + 20 × manutenção + 15 × alertas + 25 × efetivo
+```
+
+| Componente | Cálculo |
+| --- | --- |
+| disponibilidade | operacionais ÷ instalados |
+| manutenção | 1 − (vencidas + imediatas + 0,5 × próximas em até 7 dias) ÷ instalados (mín. 0) |
+| alertas | 1 − (0,2 × críticos + 0,1 × altos) (mín. 0); crítico = furto/falha grave, alto = manutenção imediata ou vencida |
+| efetivo | agentes em serviço ÷ necessários no pico (máx. 1) |
+
+### Risco por bairro (0–100)
+
+```
+risco = escore de colapso viário (Parte 3) + 20 × fração do bairro em ponto cego
+escore de colapso = 15 × fiscalização indisponível (máx. 45) + fluxo no pico relativo (máx. 30) + 10 × déficit de agentes (máx. 25)
+```
+
+Nível: **ALTO** ≥ 55 (o mesmo limiar que dispara a previsão de colapso), **MÉDIO** ≥ 35, **BAIXO** abaixo. O escore de colapso é o mesmo da Cidade Preditiva (`collapseStats` em `core/analysis.ts`, usado pelas duas telas).
+
 ## Testes
 
 `npm test` roda 40 testes unitários (Vitest, via `ng test`) sobre as regras de negócio:

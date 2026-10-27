@@ -39,20 +39,20 @@ export class Repositorio {
   // ---------------------------------------------------------------------------
 
   listarEquipamentos(): Equipment[] {
-    return (this.db.prepare('SELECT * FROM equipamentos ORDER BY id').all() as EquipmentRow[]).map(fromEquipmentRow);
+    return (this.db.prepare('SELECT * FROM equipamentos ORDER BY id').all() as unknown as EquipmentRow[]).map(fromEquipmentRow);
   }
 
   obterEquipamento(id: string): Equipment | null {
-    const row = this.db.prepare('SELECT * FROM equipamentos WHERE id = ?').get(id) as EquipmentRow | undefined;
+    const row = this.db.prepare('SELECT * FROM equipamentos WHERE id = ?').get(id) as unknown as EquipmentRow | undefined;
     return row ? fromEquipmentRow(row) : null;
   }
 
   listarAgentes(): Agent[] {
-    return (this.db.prepare('SELECT * FROM agentes ORDER BY id').all() as AgentRow[]).map(fromAgentRow);
+    return (this.db.prepare('SELECT * FROM agentes ORDER BY id').all() as unknown as AgentRow[]).map(fromAgentRow);
   }
 
   obterAgente(id: string): Agent | null {
-    const row = this.db.prepare('SELECT * FROM agentes WHERE id = ?').get(id) as AgentRow | undefined;
+    const row = this.db.prepare('SELECT * FROM agentes WHERE id = ?').get(id) as unknown as AgentRow | undefined;
     return row ? fromAgentRow(row) : null;
   }
 

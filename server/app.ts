@@ -2,7 +2,11 @@ import { createServer, IncomingMessage, Server, ServerResponse } from 'node:http
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, normalize, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import { calcularAlertas } from '../src/app/core/indicators';
+import { calcularRisco, calcularSaudePorRegiao } from '../src/app/core/analysis';
+import { calcularCobertura } from '../src/app/core/coverage';
+import { calcularAlertas, calcularIndicadores } from '../src/app/core/indicators';
+import { recomendarAcoes } from '../src/app/core/recommendations';
+import { Acao, AcaoInvalida, aplicarAcao, simular } from '../src/app/core/simulation';
 import { SCENARIOS, ScenarioId, applyScenario, recordSnapshot, revertScenarios } from '../src/app/core/scenarios';
 import type { CityState } from '../src/app/core/state';
 import type { Agent, Equipment } from '../src/app/models/fogo.models';
@@ -327,6 +331,72 @@ route('POST', '/api/reset', (req, ctx) => {
   ctx.reset();
   ctx.repo.registrarAuditoria({ acao: 'RESET', autor: req.autor, descricao: 'Banco recriado com a seed de exemplo' });
   return ctx.estadoCompleto();
+});
+
+// -----------------------------------------------------------------------------
+// Simulador e próxima melhor ação
+// -----------------------------------------------------------------------------
+
+function readAction(body: unknown): Acao {
+  const acao = (body as { acao?: Acao })?.acao;
+  const tipos = ['FALHA_EQUIPAMENTO', 'DESATIVAR_EQUIPAMENTO', 'REALOCAR_AGENTES', 'ANTECIPAR_MANUTENCAO'];
+  if (!acao || !tipos.includes(acao.tipo)) throw new HttpError(400, `Ação inválida: use { acao: { tipo: ${tipos.join(' | ')} , ... } }`);
+  return acao;
+}
+
+function withActionErrors<T>(fn: () => T): T {
+  try {
+    return fn();
+  } catch (err) {
+    if (err instanceof AcaoInvalida) throw new HttpError(400, err.message);
+    throw err;
+  }
+}
+
+/** Simula a ação sobre o estado atual, SEM gravar nada. */
+route('POST', '/api/simulacao', (req, ctx) => {
+  const acao = readAction(req.body);
+  return withActionErrors(() => simular(ctx.repo.lerEstado(), acao));
+});
+
+route('GET', '/api/recomendacoes', (req, ctx) => recomendarAcoes(ctx.repo.lerEstado(), { topN: Number(req.query.get('topN')) || 3 }));
+
+/** Aplica de verdade: grava o novo estado e registra na auditoria quem, quando e antes → depois. */
+route('POST', '/api/acoes/aplicar', (req, ctx) => {
+  const acao = readAction(req.body);
+  const simulacao = ctx.repo.transacao(() =>
+    withActionErrors(() => {
+      const before = ctx.repo.lerEstado();
+      const sim = simular(before, acao);
+      const { state: after, descricao, afetados } = aplicarAcao(before, acao, { modo: 'aplicacao' });
+      persistState(ctx, before, after, 'acao');
+      const pick = (s: CityState) => ({
+        equipamentos: s.equipment.filter((e) => afetados.equipamentos.includes(e.id)),
+        agentes: s.agents.filter((a) => afetados.agentes.includes(a.id)),
+      });
+      ctx.repo.registrarAuditoria({
+        acao: acao.tipo,
+        autor: req.autor,
+        descricao: `${descricao} · ${sim.diferencas.slice(0, 3).map((d) => d.texto).join('; ') || 'sem efeito nos indicadores'}`,
+        antes: pick(before),
+        depois: pick(after),
+      });
+      ctx.afterWrite();
+      return sim;
+    })
+  );
+  return { ...ctx.estadoCompleto(), simulacao };
+});
+
+route('GET', '/api/analise', (_req, ctx) => {
+  const state = ctx.repo.lerEstado();
+  const coverage = calcularCobertura(state);
+  return {
+    indicadores: calcularIndicadores(state.equipment, state.agents),
+    saude: calcularSaudePorRegiao(state),
+    risco: calcularRisco(state, { coverage }),
+    cobertura: coverage,
+  };
 });
 
 route('GET', '/api/auditoria', (req, ctx) => ctx.repo.listarAuditoria(Number(req.query.get('limite')) || 50));
