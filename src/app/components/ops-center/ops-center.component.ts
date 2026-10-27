@@ -46,6 +46,7 @@ import { MarkerSpec, MarkerSync, markerRank } from './marker-sync';
 import { SimulatorPanelComponent } from '../simulator/simulator-panel.component';
 import { SimulationService } from '../../services/simulation.service';
 import { RoutePanelComponent } from '../route/route-panel.component';
+import { BulletinCardComponent } from '../bulletin/bulletin-card.component';
 import { RouteService } from '../../services/route.service';
 import { MaintenanceRoute } from '../../core/maintenance-route';
 import { calcularRisco, calcularSaudePorRegiao } from '../../core/analysis';
@@ -59,7 +60,7 @@ const SELECT_CLASS =
 @Component({
   selector: 'app-ops-center',
   standalone: true,
-  imports: [SimulatorPanelComponent, RoutePanelComponent],
+  imports: [SimulatorPanelComponent, RoutePanelComponent, BulletinCardComponent],
   template: `
     <div class="p-4 lg:p-5 space-y-4 max-w-[1800px] mx-auto">
       <!-- Filtros reativos -->
@@ -154,6 +155,8 @@ const SELECT_CLASS =
           <span class="kpi-sub">{{ city.kpis().inDispatch }} em despacho · {{ city.kpis().totalAgents }} no total</span>
         </div>
       </section>
+
+      <app-bulletin-card />
 
       <!-- Mapa + painel lateral -->
       <div class="grid grid-cols-1 xl:grid-cols-12 gap-4">

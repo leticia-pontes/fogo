@@ -5,6 +5,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { calcularRisco, calcularSaudePorRegiao } from '../src/app/core/analysis';
 import { calcularCobertura } from '../src/app/core/coverage';
 import { calcularAlertas, calcularIndicadores } from '../src/app/core/indicators';
+import { gerarBoletim } from '../src/app/core/bulletin';
 import { gerarRotaManutencao } from '../src/app/core/maintenance-route';
 import { recomendarAcoes } from '../src/app/core/recommendations';
 import { Acao, AcaoInvalida, aplicarAcao, simular } from '../src/app/core/simulation';
@@ -402,6 +403,13 @@ route('GET', '/api/rota-manutencao', (req, ctx) => {
     apenasCriticos: q['apenasCriticos'] === '1' || q['apenasCriticos'] === 'true',
     limite: Number(q['limite']) || undefined,
   });
+});
+
+/** Boletim da PROMETHEUS (templates determinísticos com os números do estado; sem LLM). */
+route('GET', '/api/boletim', (_req, ctx) => {
+  const state = ctx.repo.lerEstado();
+  const coverage = calcularCobertura(state);
+  return gerarBoletim(state, calcularRisco(state, { coverage }), new Date(), { coverage });
 });
 
 /** Cobertura por bairro e lista de pontos cegos (células sem cobertura). */

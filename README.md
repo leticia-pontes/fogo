@@ -205,6 +205,23 @@ Aba **Rota de manutenção** no painel lateral da Central: filtros por região, 
 
 Nas recomendações, a rota com até 6 paradas críticas entra como candidata (`EXECUTAR_ROTA_MANUTENCAO`, que é a composição de `ANTECIPAR_MANUTENCAO` para cada parada). Rota: `GET /api/rota-manutencao?bairro=&tipo=&apenasCriticos=1&limite=10`.
 
+## Boletim da PROMETHEUS
+
+Card no topo da Central, logo abaixo dos KPIs: **Atualizar boletim**, **Copiar**, **Exportar .txt** e **Ouvir** (usa a voz do agente PROMETHEUS). O boletim se refaz sozinho quando o estado muda (cenário de crise, ação aplicada, parada concluída, telemetria).
+
+`gerarBoletim(estado, previsoes, agora)` (`core/bulletin.ts`) monta o texto a partir de **templates determinísticos** preenchidos com números do estado, no tom da PROMETHEUS (confiante, levemente irônica, profissional):
+
+1. saudação conforme o horário (bom dia / boa tarde / boa noite) e hora do boletim;
+2. disponibilidade (operacionais ÷ instalados, agentes em serviço) com um comentário por faixa;
+3. regiões que exigem atenção (saúde < 60 ou risco ALTO), com o motivo: fiscalização fora, déficit de efetivo, manutenção vencida;
+4. alertas críticos ativos;
+5. preventivas que vencem nas próximas 48 h (as corretivas já estão nos alertas);
+6. pontos cegos: % coberto e o bairro com menor cobertura;
+7. maior risco para o próximo pico (janela histórica do bairro);
+8. a próxima melhor ação recomendada, com o impacto estimado.
+
+Sem nada crítico, o texto diz "Tudo sob controle". **Não usa LLM**: o mesmo estado e horário geram sempre o mesmo texto e nenhum número é inventado. (Não há modo opcional com LLM: preferi não depender de chave nem arriscar números diferentes na demonstração.) Rota: `GET /api/boletim`.
+
 ## Testes
 
 `npm test` roda 40 testes unitários (Vitest, via `ng test`) sobre as regras de negócio:
