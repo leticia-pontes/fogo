@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import type { Ocorrencia, StatusOcorrencia, TipoAlerta } from '../src/app/core/occurrences';
 import type { ScenarioId, ScenarioSnapshot } from '../src/app/core/scenarios';
 import type { CityState } from '../src/app/core/state';
 import type { Agent, Equipment, OpsAlert } from '../src/app/models/fogo.models';
@@ -224,6 +225,34 @@ export class Repositorio {
     }));
   }
 
+  abrirOcorrencia(o: Ocorrencia): void {
+    this.db
+      .prepare(
+        `INSERT INTO ocorrencias (id, equipamento_id, tipo_alerta, status, aberta_em, encerrada_em, snapshot_abertura, dossie, despacho, encerramento)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(o.id, o.equipamentoId, o.tipoAlerta, o.status, o.abertaEm, o.encerradaEm, JSON.stringify(o.snapshotAbertura), ...jsonCols(o));
+  }
+
+  /** Grava status, encerramento e os blocos JSON das etapas seguintes. */
+  atualizarOcorrencia(o: Ocorrencia): void {
+    this.db
+      .prepare('UPDATE ocorrencias SET status = ?, encerrada_em = ?, dossie = ?, despacho = ?, encerramento = ? WHERE id = ?')
+      .run(o.status, o.encerradaEm, ...jsonCols(o), o.id);
+  }
+
+  listarOcorrencias(status?: StatusOcorrencia): Ocorrencia[] {
+    const rows = status
+      ? this.db.prepare('SELECT * FROM ocorrencias WHERE status = ? ORDER BY aberta_em DESC, id DESC').all(status)
+      : this.db.prepare('SELECT * FROM ocorrencias ORDER BY aberta_em DESC, id DESC').all();
+    return (rows as unknown as OcorrenciaRow[]).map(fromOcorrenciaRow);
+  }
+
+  obterOcorrencia(id: string): Ocorrencia | null {
+    const row = this.db.prepare('SELECT * FROM ocorrencias WHERE id = ?').get(id) as unknown as OcorrenciaRow | undefined;
+    return row ? fromOcorrenciaRow(row) : null;
+  }
+
   /** Executa `fn` numa transação (tudo ou nada). */
   transacao<T>(fn: () => T): T {
     this.db.exec('BEGIN');
@@ -304,5 +333,37 @@ function fromAgentRow(r: AgentRow): Agent {
     neighborhood: r.bairro,
     lat: r.latitude,
     lng: r.longitude,
+  };
+}
+
+interface OcorrenciaRow {
+  id: string;
+  equipamento_id: string;
+  tipo_alerta: string;
+  status: string;
+  aberta_em: string;
+  encerrada_em: string | null;
+  snapshot_abertura: string;
+  dossie: string | null;
+  despacho: string | null;
+  encerramento: string | null;
+}
+
+const parseJson = (v: string | null) => (v ? JSON.parse(v) : null);
+const jsonCols = (o: Ocorrencia) =>
+  [o.dossie, o.despacho, o.encerramento].map((v) => (v === null || v === undefined ? null : JSON.stringify(v)));
+
+function fromOcorrenciaRow(r: OcorrenciaRow): Ocorrencia {
+  return {
+    id: r.id,
+    equipamentoId: r.equipamento_id,
+    tipoAlerta: r.tipo_alerta as TipoAlerta,
+    status: r.status as StatusOcorrencia,
+    abertaEm: r.aberta_em,
+    encerradaEm: r.encerrada_em,
+    snapshotAbertura: JSON.parse(r.snapshot_abertura),
+    dossie: parseJson(r.dossie),
+    despacho: parseJson(r.despacho),
+    encerramento: parseJson(r.encerramento),
   };
 }

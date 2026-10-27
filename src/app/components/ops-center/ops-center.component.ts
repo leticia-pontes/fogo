@@ -35,6 +35,7 @@ import {
   Agent,
   AgentStatus,
   Equipment,
+  OpsAlert,
   EquipmentStatus,
   EquipmentType,
   OpsFilters,
@@ -46,6 +47,9 @@ import { MarkerSpec, MarkerSync, markerRank } from './marker-sync';
 import { SimulatorPanelComponent } from '../simulator/simulator-panel.component';
 import { SimulationService } from '../../services/simulation.service';
 import { RoutePanelComponent } from '../route/route-panel.component';
+import { OccurrencesPanelComponent } from '../occurrences/occurrences-panel.component';
+import { OccurrenceService } from '../../services/occurrence.service';
+import { TIPO_ALERTA_LABELS, TipoAlerta, tipoAlertaDoEquipamento } from '../../core/occurrences';
 import { BulletinCardComponent } from '../bulletin/bulletin-card.component';
 import { RouteService } from '../../services/route.service';
 import { MaintenanceRoute } from '../../core/maintenance-route';
@@ -60,7 +64,7 @@ const SELECT_CLASS =
 @Component({
   selector: 'app-ops-center',
   standalone: true,
-  imports: [SimulatorPanelComponent, RoutePanelComponent, BulletinCardComponent],
+  imports: [SimulatorPanelComponent, RoutePanelComponent, OccurrencesPanelComponent, BulletinCardComponent],
   template: `
     <div class="p-4 lg:p-5 space-y-4 max-w-[1800px] mx-auto">
       <!-- Filtros reativos -->
@@ -292,6 +296,12 @@ const SELECT_CLASS =
                 <button type="button" (click)="simulateEquipment('DESATIVAR_EQUIPAMENTO', eq.id)" class="btn-secondary text-xs">Desativar</button>
                 <button type="button" (click)="simulateEquipment('ANTECIPAR_MANUTENCAO', eq.id)" class="btn-secondary text-xs">Manutenção hoje</button>
               </div>
+              @let tipoEq = occurrenceTypeForEquipment(eq);
+              @if (tipoEq) {
+                <button type="button" class="btn-primary w-full" [disabled]="occ.busy()" (click)="occ.open(eq.id, tipoEq)">
+                  {{ occ.hasOpen(eq.id, tipoEq) ? 'Ver ocorrência' : 'Abrir ocorrência' }} · {{ occurrenceLabels[tipoEq] }}
+                </button>
+              }
               <button type="button" (click)="requestEdit('equipment', eq.id)" class="btn-secondary w-full">Editar no inventário</button>
             </div>
           } @else if (city.selectedAgent(); as ag) {
@@ -336,6 +346,9 @@ const SELECT_CLASS =
               <button type="button" role="tab" [attr.aria-selected]="sim.panel() === 'route'" (click)="sim.panel.set('route')" class="flex-1 py-2.5 cursor-pointer" [class]="sim.panel() === 'route' ? tabOn : tabOff">
                 Rota de manutenção
               </button>
+              <button type="button" role="tab" [attr.aria-selected]="sim.panel() === 'occurrences'" (click)="sim.panel.set('occurrences')" class="flex-1 py-2.5 cursor-pointer" [class]="sim.panel() === 'occurrences' ? tabOn : tabOff">
+                Ocorrências ({{ occ.list().length }})
+              </button>
             </div>
             @if (sim.panel() === 'simulator') {
               <div class="flex-1 overflow-y-auto">
@@ -344,6 +357,10 @@ const SELECT_CLASS =
             } @else if (sim.panel() === 'route') {
               <div class="flex-1 overflow-y-auto">
                 <app-route-panel />
+              </div>
+            } @else if (sim.panel() === 'occurrences') {
+              <div class="flex-1 overflow-y-auto">
+                <app-occurrences-panel />
               </div>
             } @else {
               <div class="p-4 border-b border-fogo-border flex items-center justify-between">
@@ -354,12 +371,12 @@ const SELECT_CLASS =
               </div>
               <div class="flex-1 overflow-y-auto p-3 space-y-2">
                 @for (alert of city.alerts(); track alert.id) {
-                  <button
-                    type="button"
-                    (click)="city.selection.set(alert.target)"
-                    class="w-full text-left rounded-lg border p-3 bg-fogo-bg hover:border-fogo-ember cursor-pointer"
+                  @let tipo = occurrenceTypeFor(alert);
+                  <div
+                    class="rounded-lg border bg-fogo-bg hover:border-fogo-ember"
                     [class]="alert.severity === 'critical' ? 'border-fogo-red/60' : alert.severity === 'high' ? 'border-fogo-amber/60' : 'border-fogo-border'"
                   >
+                  <button type="button" (click)="city.selection.set(alert.target)" class="w-full text-left p-3 cursor-pointer">
                     <span
                       class="text-[12px] font-semibold uppercase tracking-wide"
                       [class]="alert.severity === 'critical' ? 'text-fogo-red' : alert.severity === 'high' ? 'text-fogo-amber' : 'text-fogo-muted'"
@@ -369,6 +386,14 @@ const SELECT_CLASS =
                     <p class="text-sm font-medium mt-0.5">{{ alert.title }}</p>
                     <p class="text-xs text-fogo-muted mt-0.5">{{ alert.detail }}</p>
                   </button>
+                  @if (tipo) {
+                    <div class="px-3 pb-3 -mt-1">
+                      <button type="button" class="btn-secondary text-xs" [disabled]="occ.busy()" (click)="occ.open(alert.target.id, tipo)">
+                        {{ occ.hasOpen(alert.target.id, tipo) ? 'Ver ocorrência' : 'Abrir ocorrência' }}
+                      </button>
+                    </div>
+                  }
+                  </div>
                 } @empty {
                   <p class="text-center text-sm text-fogo-muted py-10">Nenhum alerta na visão atual.</p>
                 }
@@ -465,6 +490,8 @@ export class OpsCenterComponent implements AfterViewInit, OnDestroy {
 
   readonly city = inject(CityStateService);
   readonly sim = inject(SimulationService);
+  readonly occ = inject(OccurrenceService);
+  readonly occurrenceLabels = TIPO_ALERTA_LABELS;
   private readonly routes = inject(RouteService);
   private readonly ui = inject(UiStateService);
   readonly showBlind = signal(false);
@@ -677,6 +704,18 @@ export class OpsCenterComponent implements AfterViewInit, OnDestroy {
 
   describe(eq: Equipment) {
     return describeCustomProperties(eq);
+  }
+
+  /** Alertas de furto e falha podem virar ocorrência direto da lista. */
+  occurrenceTypeFor(alert: OpsAlert): TipoAlerta | null {
+    if (alert.target.kind !== 'equipment') return null;
+    const eq = this.city.equipment().find((e) => e.id === alert.target.id);
+    const tipo = eq ? tipoAlertaDoEquipamento(eq) : null;
+    return tipo === 'furto' || tipo === 'falha' ? tipo : null;
+  }
+
+  occurrenceTypeForEquipment(eq: Equipment): TipoAlerta | null {
+    return tipoAlertaDoEquipamento(eq);
   }
 
   formatDate(iso: string): string {

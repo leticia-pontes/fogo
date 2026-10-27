@@ -359,6 +359,9 @@ export class CityStateService {
     this.appliedActions.update((set) => new Set([...set, ...signatures]));
   }
 
+  /** Incrementa a cada restauração da seed (outros serviços limpam o que dependia do estado anterior). */
+  readonly resets = signal(0);
+
   /** Volta à seed de exemplo: no modo online recria o banco (POST /api/reset). */
   async resetToMock(): Promise<void> {
     this.stopTelemetry();
@@ -379,6 +382,7 @@ export class CityStateService {
     this.appliedActions.set(new Set());
     this.peakSurge.set(null);
     this.scenarioSnapshot.set(null);
+    this.resets.update((n) => n + 1);
     this.log('Dados de exemplo restaurados', 'info', 'system');
   }
 

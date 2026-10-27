@@ -7,6 +7,7 @@ import { calcularCobertura } from '../src/app/core/coverage';
 import { calcularAlertas, calcularIndicadores } from '../src/app/core/indicators';
 import { gerarBoletim } from '../src/app/core/bulletin';
 import { gerarRotaManutencao } from '../src/app/core/maintenance-route';
+import { STATUS_OCORRENCIA, StatusOcorrencia, abrirOcorrencia, validarAbertura, type AberturaOcorrencia } from '../src/app/core/occurrences';
 import { recomendarAcoes } from '../src/app/core/recommendations';
 import { Acao, AcaoInvalida, aplicarAcao, simular } from '../src/app/core/simulation';
 import { SCENARIOS, ScenarioId, applyScenario, recordSnapshot, revertScenarios } from '../src/app/core/scenarios';
@@ -73,6 +74,11 @@ export interface Request {
 }
 
 type Handler = (req: Request, ctx: Contexto) => unknown;
+
+/** Resposta com status explícito (o padrão é 200, ou 201 nos POST de cadastro). */
+export class Resposta {
+  constructor(readonly status: number, readonly body: unknown) {}
+}
 
 const routes: { method: string; path: string; pattern: RegExp; keys: string[]; handler: Handler }[] = [];
 
@@ -438,6 +444,41 @@ route('GET', '/api/auditoria', (req, ctx) => ctx.repo.listarAuditoria(Number(req
 route('GET', '/api/alertas', (_req, ctx) => ctx.repo.listarAlertasAbertos());
 route('GET', '/api/eventos', (req, ctx) => ctx.repo.listarEventos(Number(req.query.get('limite')) || 50));
 
+// -----------------------------------------------------------------------------
+// Ocorrências
+// -----------------------------------------------------------------------------
+
+/** Idempotente: já existindo ocorrência não encerrada para o mesmo equipamento e tipo, devolve ela (200). */
+route('POST', '/api/ocorrencias', (req, ctx) => {
+  const errors = validarAbertura(req.body);
+  if (errors.length) throw new HttpError(400, 'Dados inválidos', errors);
+  const input = req.body as AberturaOcorrencia;
+  if (!ctx.repo.obterEquipamento(input.equipamentoId)) throw new HttpError(404, `Equipamento ${input.equipamentoId} não encontrado`);
+  return ctx.repo.transacao(() => {
+    const { ocorrencia, criada } = abrirOcorrencia(ctx.repo.listarOcorrencias(), ctx.repo.lerEstado(), input, new Date());
+    if (!criada) return new Resposta(200, ocorrencia);
+    ctx.repo.abrirOcorrencia(ocorrencia);
+    const eq = ctx.repo.obterEquipamento(ocorrencia.equipamentoId)!;
+    ctx.repo.registrarAuditoria({
+      acao: 'ABRIR_OCORRENCIA',
+      autor: req.autor,
+      descricao: `${ocorrencia.id} aberta: ${ocorrencia.tipoAlerta} em ${eq.serialNumber} (${eq.location.neighborhood})`,
+      depois: { ocorrenciaId: ocorrencia.id, status: ocorrencia.status, equipamentoId: eq.id, situacao: eq.status },
+    });
+    return new Resposta(201, ocorrencia);
+  });
+});
+
+route('GET', '/api/ocorrencias', (req, ctx) => {
+  const status = req.query.get('status') || undefined;
+  if (status && !STATUS_OCORRENCIA.includes(status as StatusOcorrencia)) {
+    throw new HttpError(400, `status deve ser ${STATUS_OCORRENCIA.join(', ')}`);
+  }
+  return ctx.repo.listarOcorrencias(status as StatusOcorrencia | undefined);
+});
+
+route('GET', '/api/ocorrencias/:id', (req, ctx) => ctx.repo.obterOcorrencia(req.params['id']) ?? notFound());
+
 function notFound(): never {
   throw new HttpError(404, 'Não encontrado');
 }
@@ -505,6 +546,7 @@ export function createApp(dbFile = DEFAULT_DB_FILE): { server: Server; ctx: Cont
         const autor = String(req.headers['x-usuario'] ?? 'gestor');
         const body = method === 'GET' ? undefined : await readBody(req);
         const result = await r.handler({ method, path: url.pathname, query: url.searchParams, params, body, autor }, ctx);
+        if (result instanceof Resposta) return send(res, result.status, result.body);
         return send(res, method === 'POST' && url.pathname.match(/^\/api\/(equipamentos|agentes)$/) ? 201 : 200, result ?? { ok: true });
       }
       throw new HttpError(404, `Rota não encontrada: ${method} ${url.pathname}`);

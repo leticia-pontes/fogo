@@ -97,6 +97,22 @@ CREATE TABLE IF NOT EXISTS cenarios_aplicados (
   revertido_em TEXT
 );
 
+-- Ocorrências: alerta → investigação → despacho → encerramento. A linha do tempo fica na auditoria.
+CREATE TABLE IF NOT EXISTS ocorrencias (
+  id                TEXT PRIMARY KEY,
+  equipamento_id    TEXT NOT NULL,
+  tipo_alerta       TEXT NOT NULL CHECK (tipo_alerta IN ('furto', 'falha', 'manutencao')),
+  status            TEXT NOT NULL CHECK (status IN ('aberta', 'investigada', 'despachada', 'encerrada')),
+  aberta_em         TEXT NOT NULL,
+  encerrada_em      TEXT,
+  snapshot_abertura TEXT NOT NULL CHECK (json_valid(snapshot_abertura)),
+  dossie            TEXT CHECK (dossie IS NULL OR json_valid(dossie)),
+  despacho          TEXT CHECK (despacho IS NULL OR json_valid(despacho)),
+  encerramento      TEXT CHECK (encerramento IS NULL OR json_valid(encerramento))
+);
+CREATE INDEX IF NOT EXISTS idx_ocorrencias_status ON ocorrencias(status);
+CREATE INDEX IF NOT EXISTS idx_ocorrencias_equipamento ON ocorrencias(equipamento_id);
+
 -- Estado global da cidade (ex.: bairro em véspera de pico).
 CREATE TABLE IF NOT EXISTS estado_cidade (
   chave TEXT PRIMARY KEY,

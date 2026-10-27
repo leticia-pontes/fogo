@@ -163,4 +163,51 @@ describe('API + SQLite', () => {
     expect(docs.headers.get('content-type')).toContain('text/html');
     expect(await docs.text()).toContain('swagger-ui');
   });
+
+  describe('ocorrências', () => {
+    const stolenId = async () => {
+      const { data } = await call<Equipment[]>('GET', '/equipamentos?situacao=stolen');
+      return data[0].id;
+    };
+
+    it('abrir é idempotente e grava o snapshot da abertura', async () => {
+      const equipamentoId = await stolenId();
+      const first = await call('POST', '/ocorrencias', { equipamentoId, tipoAlerta: 'furto' });
+      expect(first.status).toBe(201);
+      expect(first.data).toMatchObject({ id: 'OC-0001', equipamentoId, tipoAlerta: 'furto', status: 'aberta', encerradaEm: null });
+      expect(first.data.snapshotAbertura.indicadores.availabilityPct).toBe((await call('GET', '/analise')).data.indicadores.availabilityPct);
+      expect(first.data.snapshotAbertura.saude.neighborhood).toBe(first.data.snapshotAbertura.bairro);
+      expect(first.data.snapshotAbertura.risco.neighborhood).toBe(first.data.snapshotAbertura.bairro);
+      expect(typeof first.data.snapshotAbertura.cobertura.cidadePct).toBe('number');
+
+      const again = await call('POST', '/ocorrencias', { equipamentoId, tipoAlerta: 'furto' });
+      expect(again.status).toBe(200);
+      expect(again.data.id).toBe('OC-0001');
+      // Outro tipo para o mesmo equipamento é outra ocorrência.
+      expect((await call('POST', '/ocorrencias', { equipamentoId, tipoAlerta: 'falha' })).data.id).toBe('OC-0002');
+      expect((await call('GET', '/ocorrencias')).data).toHaveLength(2);
+
+      const audit = (await call('GET', '/auditoria?limite=5')).data.filter((a: { acao: string }) => a.acao === 'ABRIR_OCORRENCIA');
+      expect(audit).toHaveLength(2);
+    });
+
+    it('persiste entre reinícios e filtra por status', async () => {
+      const equipamentoId = await stolenId();
+      await call('POST', '/ocorrencias', { equipamentoId, tipoAlerta: 'furto' });
+      await restart();
+      const { data } = await call('GET', '/ocorrencias/OC-0001');
+      expect(data).toMatchObject({ id: 'OC-0001', equipamentoId, status: 'aberta' });
+      expect((await call('GET', '/ocorrencias?status=aberta')).data).toHaveLength(1);
+      expect((await call('GET', '/ocorrencias?status=encerrada')).data).toHaveLength(0);
+      expect((await call('GET', '/ocorrencias?status=xyz')).status).toBe(400);
+    });
+
+    it('entrada inválida devolve 400 e equipamento inexistente devolve 404', async () => {
+      const bad = await call('POST', '/ocorrencias', { equipamentoId: '', tipoAlerta: 'incendio' });
+      expect(bad.status).toBe(400);
+      expect(bad.data.detalhes).toEqual(['equipamentoId é obrigatório', 'tipoAlerta deve ser furto, falha, manutencao']);
+      expect((await call('POST', '/ocorrencias', { equipamentoId: 'NAO-EXISTE', tipoAlerta: 'falha' })).status).toBe(404);
+      expect((await call('GET', '/ocorrencias/OC-9999')).status).toBe(404);
+    });
+  });
 });

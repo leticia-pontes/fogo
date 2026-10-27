@@ -21,7 +21,7 @@ export class SimulationService {
   private recTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** Aba do painel lateral da Central: alertas ou simulador. */
-  readonly panel = signal<'alerts' | 'simulator' | 'route'>('alerts');
+  readonly panel = signal<'alerts' | 'simulator' | 'route' | 'occurrences'>('alerts');
   /** Ação em edição no formulário (pré-preenchida por "Simular falha" ou por uma recomendação). */
   readonly draft = signal<Acao | null>(null);
   readonly result = signal<Simulacao | null>(null);

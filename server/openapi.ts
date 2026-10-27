@@ -1,3 +1,4 @@
+import { STATUS_OCORRENCIA, TIPOS_ALERTA } from '../src/app/core/occurrences';
 import { EQUIPMENT_STATUSES, EQUIPMENT_TYPES } from '../src/app/models/equipment-schema';
 
 /** Especificação OpenAPI da API, servida em /api/openapi.json e exibida no Swagger UI em /api/docs. */
@@ -60,6 +61,7 @@ export const OPENAPI = {
     { name: 'Cenários', description: 'Cenários de crise e reset do banco' },
     { name: 'Simulação', description: 'Simulador, recomendações e aplicação de ações' },
     { name: 'Consultas', description: 'Análises, boletim, rota de manutenção e histórico' },
+    { name: 'Ocorrências', description: 'Fluxo alerta → ocorrência → investigação → despacho → encerramento' },
   ],
   components: {
     parameters: {
@@ -146,6 +148,31 @@ export const OPENAPI = {
         },
       },
       Situacao: { type: 'object', required: ['situacao'], properties: { situacao: { type: 'string' } } },
+      Ocorrencia: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', example: 'OC-0001' },
+          equipamentoId: { type: 'string' },
+          tipoAlerta: { type: 'string', enum: TIPOS_ALERTA },
+          status: { type: 'string', enum: STATUS_OCORRENCIA },
+          abertaEm: { type: 'string', format: 'date-time' },
+          encerradaEm: { type: 'string', format: 'date-time', nullable: true },
+          snapshotAbertura: {
+            type: 'object',
+            description: 'Indicadores gerais, saúde, risco e cobertura do bairro no momento da abertura',
+            properties: {
+              indicadores: { type: 'object' },
+              bairro: { type: 'string' },
+              saude: { type: 'object', nullable: true },
+              risco: { type: 'object', nullable: true },
+              cobertura: { type: 'object', properties: { cidadePct: { type: 'number' }, bairroPct: { type: 'number', nullable: true }, pontosCegos: { type: 'integer' } } },
+            },
+          },
+          dossie: { type: 'object', nullable: true },
+          despacho: { type: 'object', nullable: true },
+          encerramento: { type: 'object', nullable: true },
+        },
+      },
     },
   },
   paths: {
@@ -316,6 +343,33 @@ export const OPENAPI = {
     '/api/analise': { get: { tags: ['Consultas'], summary: 'Indicadores, saúde, risco e cobertura', responses: { 200: ok('Análise') } } },
     '/api/auditoria': { get: { tags: ['Consultas'], summary: 'Registros de auditoria (mais recentes primeiro)', parameters: [limite], responses: { 200: ok('Auditoria', { type: 'array', items: { type: 'object' } }) } } },
     '/api/alertas': { get: { tags: ['Consultas'], summary: 'Alertas abertos', responses: { 200: ok('Alertas', { type: 'array', items: { type: 'object' } }) } } },
+    '/api/ocorrencias': {
+      post: {
+        tags: ['Ocorrências'],
+        summary: 'Abre uma ocorrência a partir de um alerta (idempotente)',
+        description: 'Se já existir ocorrência não encerrada para o mesmo equipamento e tipo de alerta, devolve a existente com 200.',
+        parameters: [{ $ref: '#/components/parameters/usuario' }],
+        requestBody: body(
+          { type: 'object', required: ['equipamentoId', 'tipoAlerta'], properties: { equipamentoId: { type: 'string' }, tipoAlerta: { type: 'string', enum: TIPOS_ALERTA } } },
+          { equipamentoId: 'eq-exemplo-1', tipoAlerta: 'furto' }
+        ),
+        responses: {
+          201: ok('Ocorrência criada', ref('Ocorrencia')),
+          200: ok('Já existia ocorrência em aberto para o mesmo equipamento e tipo', ref('Ocorrencia')),
+          400: INVALIDO,
+          404: erro('Equipamento não encontrado'),
+        },
+      },
+      get: {
+        tags: ['Ocorrências'],
+        summary: 'Lista ocorrências (mais recentes primeiro)',
+        parameters: [query('status', 'Filtra por status', { type: 'string', enum: STATUS_OCORRENCIA })],
+        responses: { 200: ok('Ocorrências', { type: 'array', items: ref('Ocorrencia') }), 400: erro('Status inválido') },
+      },
+    },
+    '/api/ocorrencias/{id}': {
+      get: { tags: ['Ocorrências'], summary: 'Consulta uma ocorrência', parameters: [idParam], responses: { 200: ok('Ocorrência', ref('Ocorrencia')), 404: NAO_ENCONTRADO } },
+    },
     '/api/eventos': { get: { tags: ['Consultas'], summary: 'Histórico de mudanças de situação', parameters: [limite], responses: { 200: ok('Eventos', { type: 'array', items: { type: 'object' } }) } } },
   },
 };
