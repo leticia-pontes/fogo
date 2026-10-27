@@ -18,12 +18,16 @@ npm run serve           # build de produção servido pela própria API em http:
 
 > Para voltar ao cenário inicial também dá para usar **Inventário → Restaurar dados de exemplo** ou **Simular Cenários → Restaurar Estado Inicial**: no painel conectado, os dois recriam o banco.
 
-### Roteiro de demonstração
+### Roteiro de demonstração (a partir do banco recém-resetado: `npm run reset` e `npm start`)
 
-1. **Missão guiada** (painel inferior): três passos que percorrem Inventário → Central → Cidade Preditiva. Use **Pular Calibração / Modo Livre** para explorar sem guia.
-2. **Simular Cenários (Homologação)**, no cabeçalho, após a missão: onda de furtos no Centro, degradação na Zona Norte, véspera de pico na Zona Sul e falha de energia no Entroncamento. Com um cenário ativo, uma faixa vermelha mostra o cenário e os alertas críticos, com o botão **Reverter cenário** (desfaz só o que o cenário mudou).
-3. **Simular telemetria em tempo real**, na Central: começa **desligada**; ao ligar, um evento é gerado a cada 3 s.
-4. **Agente de voz PROMETHEUS**: responde perguntas ("quantos alertas?", "qual o maior risco?") e pode anunciar em voz alta as falhas vindas da telemetria.
+1. Abra o painel e clique em **Pular Calibração / Modo Livre** (ou siga a missão guiada de 3 passos). O cabeçalho mostra **Banco conectado**.
+2. **Simular Cenários → Falha de Energia (Entroncamento)**: faixa vermelha de cenário ativo, alertas críticos sobem, disponibilidade cai de 75% para 69,2% e a saúde do Entroncamento de 47 para 17.
+3. **Boletim da PROMETHEUS** (abaixo dos KPIs): o texto já reflete o apagão; **Ouvir** lê em voz alta.
+4. Aba **Simulador · ações**: as 3 próximas melhores ações. **Simular esta** mostra o ANTES × DEPOIS e destaca no mapa os itens afetados e as células de cobertura; **Aplicar esta ação** grava e audita.
+5. Aba **Rota de manutenção → Gerar rota**: linha numerada no mapa; **Concluir** em algumas paradas e o painel melhora (disponibilidade, saúde, risco, boletim).
+6. **Reverter cenário** (na faixa vermelha) desfaz só o que o cenário mudou.
+
+Outros recursos: **Pontos cegos** e **Raios de cobertura** no canto do mapa; **Simular telemetria em tempo real** (começa desligada; um evento a cada 3 s, gravado no histórico); **agente de voz** ("quantos alertas?", "qual o maior risco?"); os outros cenários (onda de furtos, degradação na Zona Norte, véspera de pico na Zona Sul).
 
 ### Pacote de entrega
 
@@ -74,9 +78,19 @@ server/
 ├── db.ts                       # Esquema SQLite e abertura do arquivo
 ├── repository.ts               # Repositório: única camada que lê/grava o banco
 ├── seed.ts, reset.ts, synthetic.ts
-└── validation.ts               # Validação dos cadastros (inclui propriedades por tipo)
+├── validation.ts               # Validação dos cadastros (inclui propriedades por tipo)
+└── api.spec.ts                 # Testes da API + persistência
 src/app/
-├── core/                       # Regras puras (sem Angular, sem banco): indicadores, cenários…
+├── core/                       # Regras puras (sem Angular, sem banco), usadas pelo painel e pela API
+│   ├── state.ts                # CityState: o estado que as funções recebem
+│   ├── indicators.ts           # calcularIndicadores, calcularAlertas, calcularRegioes
+│   ├── analysis.ts             # calcularSaudePorRegiao, calcularRisco, collapseStats (Parte 3)
+│   ├── coverage.ts, coverage-config.ts   # calcularCobertura e raios por tipo
+│   ├── simulation.ts           # simular, aplicarAcao
+│   ├── recommendations.ts      # recomendarAcoes
+│   ├── maintenance-route.ts    # gerarRotaManutencao
+│   ├── bulletin.ts             # gerarBoletim
+│   └── scenarios.ts            # cenários de crise e reversão
 ├── models/
 │   ├── fogo.models.ts          # Tipos do domínio (Equipment, Agent, filtros, regiões, alertas)
 │   └── equipment-schema.ts     # Rótulos, cores semânticas e schema dos campos dinâmicos por tipo
@@ -84,10 +98,15 @@ src/app/
 │   ├── city-map.ts             # Geometria da cidade fictícia (bairros, rio, vias) e pontos sobre as vias
 │   └── mock-data.ts            # Seed: 54 equipamentos, 19 agentes e histórico simulado por bairro
 ├── services/
-│   ├── city-state.service.ts   # Estado global: CRUD, localStorage, filtros, KPIs, alertas, regiões, telemetria
-│   └── prediction.service.ts   # Motor preditivo explicável + aplicação das recomendações
+│   ├── api.ts                  # Cliente HTTP da API
+│   ├── city-state.service.ts   # Estado em Signals: carga do servidor, sincronização em lote, filtros, telemetria
+│   ├── prediction.service.ts   # Motor preditivo explicável (Parte 3) + aplicação das recomendações
+│   ├── scenario.service.ts     # Cenários de crise (servidor quando online, local quando offline)
+│   ├── simulation.service.ts   # Simulador e próximas melhores ações
+│   └── route.service.ts        # Rota de manutenção
 └── components/
-    ├── ops-center/             # Parte 2: Central de Operações
+    ├── ops-center/             # Parte 2: Central de Operações (mapa, KPIs, alertas, regiões)
+    ├── simulator/, route/, bulletin/   # Simulador, rota e boletim (dentro da Central)
     ├── inventory/              # Parte 1: Inventário inteligente
     └── predictive-engine/      # Parte 3: Cidade Preditiva
 ```
@@ -224,18 +243,20 @@ Sem nada crítico, o texto diz "Tudo sob controle". **Não usa LLM**: o mesmo es
 
 ## Testes
 
-`npm test` roda 40 testes unitários (Vitest, via `ng test`) sobre as regras de negócio:
+`npm test` roda **78 testes** (Vitest): 69 do painel e das regras via `ng test` e 9 da API/SQLite (`npm run test:server`).
 
-- `city-state.service.spec.ts`: KPIs e disponibilidade, filtros aplicados a KPIs, alertas e regiões, limiares de saúde por bairro, alertas (furto, falha, manutenção vencida ou em até 7 dias, agente sem atividade), CRUD, persistência e determinismo do seed.
-- `marker-sync.spec.ts`: o mapa reaproveita os marcadores (só move ou troca o ícone do que mudou, remove o que saiu, compartilha ícones) e, com grupos, aplica as mudanças em lote, adia a posição de quem está dentro de um grupo visível e recalcula a cor do grupo.
-- `city-map.spec.ts`: deslocamento da telemetria sempre sobre as vias do bairro, inversão de sentido no fim do trecho e frota do teste de carga (determinística, séries únicas).
-- `prediction.service.spec.ts`: as 4 previsões (colapso viário com a fórmula do score, reforço de efetivo, falha em lote, onda de furtos), determinismo e efeito de "Aplicar recomendação" no estado.
+- `core/simulation.spec.ts`: simular não altera o estado original; desativar nunca aumenta disponibilidade nem cobertura; realocar tira efetivo da origem e soma no destino; antecipar manutenção nunca piora a saúde; diferenças ordenadas; recomendações ordenadas por ganho, determinísticas e a primeira realmente melhora os indicadores; cobertura (um equipamento isolado cobre só as células dentro do raio, desativá-lo reduz a cobertura, dois sobrepostos não perdem cobertura quando um cai, agente fora de turno não cobre).
+- `core/maintenance-route.spec.ts`: imediatas antes das de menor criticidade, sem paradas repetidas, distância total = soma dos trechos, lista vazia sem erro, filtros e furtados fora.
+- `core/bulletin.spec.ts`: o boletim cita os números corretos, muda quando o estado muda e, sem alertas, diz "tudo sob controle".
+- `core/scenarios.spec.ts`: cada cenário altera o estado sem mutar a entrada e é reproduzível; reverter devolve exatamente o estado anterior e preserva itens criados depois.
+- `server/api.spec.ts`: banco criado e populado na primeira execução e não repopulado depois; criar, consultar, editar e desativar equipamento e agente persistem entre reinícios; validação das propriedades por tipo; `sync` com histórico e alertas; cenário persistido e revertido; simulação não grava e aplicar grava e audita; reset restaura o estado inicial.
+- `city-state.service.spec.ts`, `prediction.service.spec.ts`, `marker-sync.spec.ts`, `city-map.spec.ts`: KPIs, filtros, alertas, previsões da Parte 3, mapa incremental e telemetria (testes anteriores, mantidos).
 
 ## Teste de carga
 
-Abra `http://localhost:4200/?stress=2000` (máximo 5000) para somar uma frota sintética, determinística e posicionada sobre as vias. Ela fica só em memória e não sobrescreve os dados salvos.
+Abra `http://localhost:4200/?stress=2000` (máximo 5000) para somar uma frota sintética, determinística e posicionada sobre as vias. Ela fica só em memória: nesse modo o painel não lê nem grava no banco. Para volume dentro do banco, use `npm run sintetico`.
 
-Medição em Chrome headless com 2.072 equipamentos e 24 agentes, ao longo de 10 ciclos de telemetria:
+Medição em Chrome headless com 2.072 equipamentos e 24 agentes (seed anterior), ao longo de 10 ciclos de telemetria:
 
 | | Antes (redesenho completo) | Depois (incremental) |
 | --- | --- | --- |
@@ -245,6 +266,22 @@ Medição em Chrome headless com 2.072 equipamentos e 24 agentes, ao longo de 10
 
 Com o agrupamento, a mesma frota aparece como 85 ícones (58 grupos, 24 agentes e alguns itens isolados), e cada ciclo de telemetria leva cerca de 29 ms de script. Veículos dentro de um grupo visível só têm a posição aplicada no próximo zoom, porque reposicioná-los a cada ciclo forçava o redesenho dos grupos (111 ms por ciclo).
 
+## Suposições e limitações
+
+- **Cidade fictícia.** O desafio pedia bairros reais; mantive **Nova Prometeia** (6 bairros) porque o mapa é desenhado em vetor, sem servidor de mapas, e todos os pontos ficam sobre as vias desenhadas. CEPs seguem o formato brasileiro e as coordenadas ficam no interior de SP, mas nenhum endereço é real.
+- **Números são estimativas por regras.** Saúde, risco, cobertura, ganho das recomendações e tempo da rota vêm de fórmulas documentadas acima, com pesos escolhidos por bom senso, não calibrados com dados reais. O histórico de fluxo e ocorrências por bairro é simulado (`NEIGHBORHOOD_HISTORY`).
+- **Raios de cobertura** são valores de referência, e a cobertura não considera obstáculos nem o ângulo das câmeras.
+- **Rota** usa distância em linha reta e velocidade média fixa; o trajeto real pelas vias é mais longo.
+- **Antecipar manutenção** na simulação é uma projeção com o serviço concluído na data; ao aplicar com data futura, a ação só agenda.
+- **Datas da seed** são relativas ao dia do reset (ex.: "vence amanhã"); mesma seed no mesmo dia, mesmo resultado.
+- **Concorrência:** o painel envia alterações em lote (último a gravar vence). Cenários, ações e reset rodam no servidor e devolvem o estado completo.
+- **Auditoria** registra o autor pelo cabeçalho `x-usuario` (o painel envia "gestor (painel)"); não há autenticação.
+- **Modo offline** (sem servidor, ex.: deploy estático): tudo funciona com as mesmas funções puras, mas sem banco, histórico nem auditoria.
+- **Desempenho das recomendações** cresce com o número de candidatas; com milhares de equipamentos em falha, só as 12 manutenções mais urgentes são simuladas por completo.
+
 ## Uso de IA no desenvolvimento
 
-O código foi desenvolvido com apoio de assistentes de IA: **Claude** (Claude Code) e **Gemini** (Antigravity). As pastas `.agents/` e `.gemini/` guardam a especificação usada como contexto pelas IAs e ficam fora do pacote de entrega (`.gitattributes`). A aplicação não chama nenhuma IA em tempo de execução: as previsões são regras explicáveis.
+O código foi desenvolvido com apoio de assistentes de IA: **Claude** (Claude Code) e **Gemini** (Antigravity). Na etapa final (cenários com reversão, banco SQLite e API, simulador, próxima melhor ação, pontos cegos, rota de manutenção e boletim), o Claude Code (modelo Claude Opus 5.5) escreveu o código e os testes a partir de uma especificação detalhada do autor, que revisou as decisões. As pastas `.agents/` e `.gemini/` guardam a especificação usada como contexto pelas IAs e ficam fora do pacote de entrega (`.gitattributes`).
+
+A aplicação **não chama nenhuma IA em tempo de execução**: previsões, recomendações e o boletim são regras e templates explicáveis, com as fórmulas descritas neste README.
+
