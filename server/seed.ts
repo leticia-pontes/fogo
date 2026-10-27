@@ -3,7 +3,7 @@ import { buildMockAgents, buildMockEquipment } from '../src/app/data/mock-data';
 import { Repositorio } from './repository';
 
 /**
- * Seed curada e determinística (54 equipamentos, 19 agentes): mesma entrada, mesmo resultado.
+ * Seed curada e determinística (30 equipamentos, 14 agentes): mesma entrada, mesmo resultado.
  * As datas de manutenção são relativas ao dia em que a seed roda (vencida há 3 dias, vence
  * amanhã etc.), para que a demonstração tenha sempre os mesmos casos de borda.
  * Registros marcados com origem = 'seed'.

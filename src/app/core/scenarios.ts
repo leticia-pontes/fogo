@@ -20,7 +20,7 @@ export const SCENARIOS: Scenario[] = [
   {
     id: 'theft_wave',
     title: 'Onda de Furto e Vandalismo (Centro)',
-    description: '2 câmeras e 1 totem furtados; pede viaturas da Guarda/PM.',
+    description: 'Câmeras (e o totem, se houver) furtadas no bairro do Centro com menos Guarda/PM; pede viaturas.',
   },
   {
     id: 'north_degradation',
