@@ -14,7 +14,7 @@ import {
 import { isPlatformBrowser } from '@angular/common';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import type * as Leaflet from 'leaflet';
-import { CITY_MAP, pointOnRoad } from '../../data/city-map';
+import { CITY_MAP, RoadPick, pointOnRoad } from '../../data/city-map';
 import { NEIGHBORHOODS } from '../../data/mock-data';
 import {
   AGENCIES,
@@ -441,8 +441,8 @@ const SELECT_CLASS =
                 </div>
                 @if (regionIndex().get(r.neighborhood); as idx) {
                   <div class="grid grid-cols-3 gap-1 text-[12px] pt-1 border-t border-fogo-border/60">
-                    <span title="Índice de saúde 0–100 (disponibilidade, manutenção, alertas, efetivo)">Saúde <b class="font-mono" [style.color]="idx.health >= 75 ? healthColors.normal : idx.health >= 55 ? healthColors.attention : healthColors.critical">{{ idx.health }}</b></span>
-                    <span title="Risco 0–100 no próximo pico (colapso viário + pontos cegos)">Risco <b class="font-mono" [style.color]="idx.level === 'ALTO' ? healthColors.critical : idx.level === 'MEDIO' ? healthColors.attention : healthColors.normal">{{ idx.risk }}</b></span>
+                    <span title="Índice de saúde 0–100 (disponibilidade, manutenção, alertas, efetivo)">Saúde <span class="opacity-70">(↑ melhor)</span> <b class="font-mono" [style.color]="idx.health >= 75 ? healthColors.normal : idx.health >= 55 ? healthColors.attention : healthColors.critical">{{ idx.health }}</b></span>
+                    <span title="Risco 0–100 no próximo pico (colapso viário + pontos cegos)">Risco <span class="opacity-70">(↑ pior)</span> <b class="font-mono" [style.color]="idx.level === 'ALTO' ? healthColors.critical : idx.level === 'MEDIO' ? healthColors.attention : healthColors.normal">{{ idx.risk }}</b></span>
                     <span title="Área do bairro coberta por equipamentos operacionais ou agentes em serviço">Cobertura <b class="font-mono">{{ idx.coverage }}%</b></span>
                   </div>
                 }
@@ -783,10 +783,10 @@ export class OpsCenterComponent implements AfterViewInit, OnDestroy {
     const roadStyle = { highway: ['#4d575b', 5], avenue: ['#3b474c', 3.5], street: ['#2e393d', 1.8] } as const;
     for (const kind of ['street', 'avenue', 'highway'] as const) {
       for (const road of CITY_MAP.roads.filter((r) => r.kind === kind)) {
-        // Clique na via: abre o cadastro de equipamento já com endereço e coordenadas do ponto.
-        addLine(road.path, roadStyle[kind][0], roadStyle[kind][1], `${road.name}<br><span class="text-[10px] opacity-70">Clique para cadastrar um equipamento aqui</span>`).on('click', (e: Leaflet.LeafletMouseEvent) => {
+        // Clique na via: pergunta o que cadastrar ali; o cadastro já abre com endereço, bairro e coordenadas do ponto.
+        addLine(road.path, roadStyle[kind][0], roadStyle[kind][1], `${road.name}<br><span class="text-[10px] opacity-70">Clique para cadastrar um equipamento ou agente aqui</span>`).on('click', (e: Leaflet.LeafletMouseEvent) => {
           const at = pointOnRoad(e.latlng.lat, e.latlng.lng);
-          if (at) this.ui.openInventory({ mode: 'create', kind: 'equipment', at });
+          if (at) this.openCreateMenu(L, map, at);
         });
       }
     }
@@ -865,6 +865,31 @@ export class OpsCenterComponent implements AfterViewInit, OnDestroy {
       for (const c of result.novosPontosCegos) cell(c.bounds, STATUS_COLORS.malfunction, 0.45, true);
       for (const c of result.pontosCegosRecuperados) cell(c.bounds, STATUS_COLORS.operational, 0.35, true);
     }
+  }
+
+  /** Menu no ponto clicado da via: cadastrar equipamento ou agente ali. DOM montado à mão (sem innerHTML com dados). */
+  private openCreateMenu(L: typeof Leaflet, map: Leaflet.Map, at: RoadPick): void {
+    const box = document.createElement('div');
+    box.className = 'flex flex-col gap-2 text-sm';
+    const title = document.createElement('p');
+    title.className = 'text-xs text-fogo-muted';
+    title.textContent = `${at.street}${at.kmMarker ? `, ${at.kmMarker}` : ''} · ${at.neighborhood}`;
+    box.append(title);
+    const popup = L.popup({ closeButton: true, autoPan: true }).setLatLng([at.lat, at.lng]);
+    const option = (label: string, kind: 'equipment' | 'agent') => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'px-3 py-1.5 rounded-lg bg-fogo-bg border border-fogo-border hover:border-fogo-ember cursor-pointer text-left';
+      btn.textContent = label;
+      btn.addEventListener('click', () => {
+        map.closePopup(popup);
+        this.ui.openInventory({ mode: 'create', kind, at });
+      });
+      box.append(btn);
+    };
+    option('+ Cadastrar equipamento aqui', 'equipment');
+    option('+ Cadastrar agente aqui', 'agent');
+    popup.setContent(box).openOn(map);
   }
 
   private render(equipment: Equipment[], agents: Agent[], regions: RegionSummary[], selectedId: string | null, highlighted: ReadonlySet<string>): void {
