@@ -44,7 +44,7 @@ npm test           # 159 testes: regras, painel e API
 O banco é um arquivo (`data/fogo.db`) criado e populado sozinho na primeira execução: **30 equipamentos de todos os 11 tipos e 14 agentes**, com casos de borda escolhidos para a demonstração. Não há banco nem servidor de mapas para instalar, e **nenhuma chave de API ou variável de ambiente é obrigatória**.
 
 <details>
-<summary>Outros comandos, variáveis opcionais e o que usa internet</summary>
+<summary>Outros comandos, variáveis de ambiente (com exemplos) e o que usa internet</summary>
 
 ```bash
 npm run serve           # build de produção servido pela própria API em http://localhost:3000
@@ -53,7 +53,37 @@ npm run sintetico -- --equipamentos=500   # frota extra no mapa
 npm run gerar-manuais   # reindexa manuais/*.md (roda sozinho antes de start, build e test)
 ```
 
-- **Variáveis opcionais:** `PORT` (padrão 3000), `FOGO_DB` (caminho do banco) e `FOGO_URL_PUBLICA` (endereço da API visto pelo celular no QR Code, veja [Comprovante](#comprovante-e-qr-code)).
+- **Variáveis de ambiente (todas opcionais):** sem nenhuma delas, o sistema roda com os valores padrão.
+
+  | Variável | Padrão | Lida por | Para que serve |
+  | --- | --- | --- | --- |
+  | `PORT` | `3000` | API (`server/main.ts`) e `npm run reset` (`server/reset.ts`) | Porta da API. Use com `npm run api` ou `npm run serve`: com `npm start`, o painel de desenvolvimento procura a API sempre na porta 3000 (`proxy.conf.json`) |
+  | `FOGO_DB` | `data/fogo.db` | API, `npm run reset` e `npm run sintetico` (`server/db.ts`) | Arquivo do banco SQLite. Caminho relativo à pasta do projeto ou absoluto; o arquivo é criado e populado se não existir |
+  | `FOGO_URL_PUBLICA` | IP da máquina na rede local | API (`server/app.ts`, link do QR Code) | Endereço que o celular usa para abrir o comprovante quando o painel está em `localhost`. Útil quando o IP detectado não é o certo (VPN, máquina virtual) |
+
+  Nenhum arquivo `.env` é lido: as variáveis são definidas no terminal, antes do comando.
+
+  ```powershell
+  # Windows (PowerShell): valem até o terminal ser fechado
+  $env:FOGO_DB = "data/demo.db"
+  $env:FOGO_URL_PUBLICA = "http://192.168.0.10:3000"
+  npm start
+
+  $env:PORT = "8080"; npm run serve      # painel e API em http://localhost:8080
+  ```
+
+  ```bat
+  :: Windows (cmd)
+  set FOGO_DB=data/demo.db
+  npm start
+  ```
+
+  ```bash
+  # Linux e macOS: valem só para o comando da linha
+  FOGO_DB=data/demo.db npm start
+  PORT=8080 npm run serve
+  FOGO_URL_PUBLICA=http://192.168.0.10:3000 npm start
+  ```
 - **Internet:** só para as fontes (Google Fonts), o Swagger UI (jsDelivr) e a transcrição do microfone, que é feita pelo próprio navegador (Google no Chrome, Microsoft no Edge). Todo o resto funciona offline.
 - **Windows com Node ≥ 25:** o `localStorage` nativo do Node encobre o do ambiente de teste; rode `NODE_OPTIONS=--no-experimental-webstorage npm test`.
 - **Pacote de entrega:** `git archive -o fogo.zip HEAD` (sem `node_modules`, `dist`, `.angular`, `.env` e banco).
