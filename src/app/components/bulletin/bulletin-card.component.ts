@@ -12,16 +12,28 @@ const REFRESH_DEBOUNCE_MS = 800;
 @Component({
   selector: 'app-bulletin-card',
   standalone: true,
+  // Elemento em bloco: assim o espaçamento vertical da página (space-y-4) vale para o card.
+  host: { class: 'block' },
   template: `
     <section
       class="bg-fogo-panel border rounded-xl overflow-hidden"
       [class]="bulletin()?.sobControle === false ? 'border-fogo-ember/50' : 'border-fogo-border'"
       aria-label="Boletim da PROMETHEUS"
     >
-      <header class="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 border-b border-fogo-border">
-        <div class="flex items-center gap-2.5 min-w-0">
-          <span class="w-2 h-2 rounded-full shrink-0" [class]="bulletin()?.sobControle ? 'bg-fogo-green' : 'bg-fogo-ember animate-pulse'"></span>
-          <h2 class="font-semibold text-sm">Boletim da PROMETHEUS</h2>
+      <header class="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5" [class.border-b]="open()" [class.border-fogo-border]="open()">
+        <div class="flex flex-wrap items-center gap-2.5 min-w-0">
+          <button
+            type="button"
+            (click)="open.set(!open())"
+            [attr.aria-expanded]="open()"
+            aria-controls="bulletin-body"
+            class="flex items-center gap-2 cursor-pointer hover:text-fogo-ember"
+            [title]="open() ? 'Recolher boletim' : 'Expandir boletim'"
+          >
+            <span class="text-fogo-muted w-3">{{ open() ? '▾' : '▸' }}</span>
+            <span class="w-2 h-2 rounded-full shrink-0" [class]="bulletin()?.sobControle ? 'bg-fogo-green' : 'bg-fogo-ember animate-pulse'"></span>
+            <h2 class="font-semibold text-sm">Boletim da PROMETHEUS</h2>
+          </button>
           @if (bulletin(); as b) {
             <span
               class="text-[11px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded border"
@@ -30,9 +42,19 @@ const REFRESH_DEBOUNCE_MS = 800;
               {{ b.sobControle ? 'Sob controle' : 'Atenção necessária' }}
             </span>
           }
+          @if (!open() && bulletin(); as b) {
+            <span class="text-xs text-fogo-muted">
+              Disponibilidade <b class="text-fogo-sand font-mono">{{ fmt(b.numeros.disponibilidadePct) }}%</b> ·
+              <b class="font-mono" [class]="b.numeros.alertasCriticos ? 'text-fogo-red' : 'text-fogo-green'">{{ b.numeros.alertasCriticos }}</b> alerta(s) crítico(s) ·
+              <b class="text-fogo-sand font-mono">{{ b.regioes.length }}</b> região(ões) em atenção
+            </span>
+          }
           <span class="text-xs text-fogo-muted">{{ updatedAt() }}</span>
         </div>
         <div class="flex flex-wrap gap-1.5 text-xs">
+          <button type="button" class="btn" (click)="open.set(!open())" [attr.aria-expanded]="open()" aria-controls="bulletin-body">
+            {{ open() ? '▴ Recolher' : '▾ Expandir' }}
+          </button>
           <button type="button" class="btn" (click)="refresh()" [disabled]="busy()">↻ Atualizar</button>
           <button type="button" class="btn" (click)="copy()" [disabled]="!bulletin()">{{ copied() ? 'Copiado ✓' : 'Copiar' }}</button>
           <button type="button" class="btn" (click)="download()" [disabled]="!bulletin()">Exportar .txt</button>
@@ -42,8 +64,10 @@ const REFRESH_DEBOUNCE_MS = 800;
         </div>
       </header>
 
-      @if (bulletin(); as b) {
-        <div class="p-4 space-y-3">
+      @if (!open()) {
+        <!-- Recolhido: só o cabeçalho com o resumo. -->
+      } @else if (bulletin(); as b) {
+        <div id="bulletin-body" class="p-4 space-y-3">
           <!-- Abertura + números-chave -->
           <p class="text-sm italic text-fogo-sand/90">“{{ section(b, 'Abertura') }} {{ remark(b) }}”</p>
           <div class="grid grid-cols-2 lg:grid-cols-4 gap-2">
@@ -137,6 +161,9 @@ export class BulletinCardComponent {
   private timer: ReturnType<typeof setTimeout> | null = null;
 
   readonly bulletin = signal<Bulletin | null>(null);
+  /** Card recolhido por padrão: só o cabeçalho com o resumo. */
+  readonly open = signal(false);
+  /** Detalhes extras (alertas, manutenções, pontos cegos) dentro do card aberto. */
   readonly expanded = signal(false);
   readonly busy = signal(false);
   readonly copied = signal(false);

@@ -11,7 +11,7 @@ import { stepAlongRoad } from '../data/city-map';
 import { calcularAlertas, calcularIndicadores, calcularRegioes, daysUntil } from '../core/indicators';
 import { ScenarioSnapshot } from '../core/scenarios';
 import { CityState } from '../core/state';
-import { ApiError, ServerState, api } from './api';
+import { API_BASE, ApiError, NETWORK_ERROR, ServerState, api, connection } from './api';
 import { MOBILE_TYPES, STATUS_LABELS } from '../models/equipment-schema';
 import {
   Agent,
@@ -26,6 +26,7 @@ import {
 const STORAGE_KEY = 'fogo:state:v4';
 /** Espera entre a última alteração e o envio do lote ao servidor. */
 const SYNC_DEBOUNCE_MS = 250;
+const RECONNECT_INTERVAL_MS = 3000;
 const TELEMETRY_INTERVAL_MS = 3000;
 
 export const EMPTY_FILTERS: OpsFilters = { type: 'all', status: 'all', neighborhood: 'all', agency: 'all' };
@@ -69,6 +70,9 @@ export class CityStateService {
   /** Assinaturas das ações preditivas já aplicadas (ver PredictionService). */
   readonly appliedActions = signal<ReadonlySet<string>>(new Set());
   readonly mode = signal<PersistenceMode>('loading');
+  /** No modo online: false enquanto a API não responde (o painel tenta reconectar). */
+  readonly connected = signal(true);
+  private reconnectTimer: ReturnType<typeof setInterval> | null = null;
 
   /** Última versão de cada item confirmada pelo servidor (JSON), para enviar só o que mudou. */
   private synced = { equipment: new Map<string, string>(), agents: new Map<string, string>(), peakSurge: null as string | null };
@@ -159,12 +163,43 @@ export class CityStateService {
       this.mode.set('offline');
       return;
     }
+    connection.onLost = () => this.handleConnectionLost();
     try {
       this.applyServerState(await api<ServerState>('GET', '/estado'));
       this.mode.set('online');
     } catch {
       // Sem servidor: o cabeçalho mostra "modo offline" e o estado segue no localStorage.
       this.mode.set('offline');
+    }
+  }
+
+  /**
+   * A API parou de responder: mantém o estado na tela, guarda as alterações pendentes e testa
+   * o servidor a cada RECONNECT_INTERVAL_MS. Ao voltar, envia o pendente e recarrega o estado.
+   */
+  private handleConnectionLost(): void {
+    if (this.mode() !== 'online' || this.reconnectTimer) return;
+    this.connected.set(false);
+    this.log('Conexão com o servidor perdida: tentando reconectar', 'bad', 'system');
+    this.reconnectTimer = setInterval(() => void this.tryReconnect(), RECONNECT_INTERVAL_MS);
+  }
+
+  private async tryReconnect(): Promise<void> {
+    try {
+      const res = await fetch(`${API_BASE}/saude`);
+      if (!res.ok || !(await res.json().catch(() => null))?.ok) return;
+    } catch {
+      return;
+    }
+    if (this.reconnectTimer) clearInterval(this.reconnectTimer);
+    this.reconnectTimer = null;
+    this.connected.set(true);
+    try {
+      await this.flushSync();
+      this.applyServerState(await api<ServerState>('GET', '/estado'));
+      this.log('Conexão com o servidor restabelecida', 'good', 'system');
+    } catch {
+      // Caiu de novo: o próprio api() religa a reconexão.
     }
   }
 
@@ -236,6 +271,8 @@ export class CityStateService {
       for (const id of removed.agents) this.synced.agents.delete(id);
       if (peakChanged) this.synced.peakSurge = this.peakSurge();
     } catch (err) {
+      // Sem conexão: o pendente fica guardado e vai junto quando o servidor voltar.
+      if (err instanceof ApiError && err.status === NETWORK_ERROR) return;
       const detail = err instanceof ApiError && Array.isArray(err.details) ? `: ${err.details.slice(0, 2).join('; ')}` : '';
       this.log(`Falha ao salvar no servidor (${(err as Error).message}${detail})`, 'bad', 'system');
     }

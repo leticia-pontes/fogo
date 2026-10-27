@@ -38,10 +38,10 @@ import { ActiveModuleTab, UiStateService } from './services/ui-state.service';
                 @if (city.mode() !== 'loading') {
                   <span
                     class="text-[11px] px-1.5 rounded border"
-                    [class]="city.mode() === 'online' ? 'border-fogo-green/50 text-fogo-green' : 'border-fogo-amber/60 text-fogo-amber'"
-                    [title]="city.mode() === 'online' ? 'Dados lidos e gravados no banco SQLite pelo servidor' : 'Servidor indisponível: os dados ficam só neste navegador'"
+                    [class]="city.mode() !== 'online' ? 'border-fogo-amber/60 text-fogo-amber' : city.connected() ? 'border-fogo-green/50 text-fogo-green' : 'border-fogo-red/60 text-fogo-red animate-pulse'"
+                    [title]="city.mode() !== 'online' ? 'Servidor indisponível: os dados ficam só neste navegador' : city.connected() ? 'Dados lidos e gravados no banco SQLite pelo servidor' : 'A API não responde. Alterações ficam guardadas e são enviadas quando ela voltar.'"
                   >
-                    {{ city.mode() === 'online' ? 'Banco conectado' : 'Modo offline' }}
+                    {{ city.mode() !== 'online' ? 'Modo offline' : city.connected() ? 'Banco conectado' : 'Servidor desconectado · reconectando…' }}
                   </span>
                 }
               </p>
