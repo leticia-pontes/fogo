@@ -64,7 +64,7 @@ export class PredictionService {
 
   /**
    * Aplica a recomendação. Online: POST /api/previsoes/aplicar grava tudo numa transação (estado,
-   * ocorrências das OS imediatas e auditoria). Offline: as mesmas funções puras, no navegador.
+   * ocorrências dos equipamentos que vão para a equipe técnica e auditoria). Offline: as mesmas funções puras, no navegador.
    */
   async apply(prediction: Prediction): Promise<void> {
     if (!prediction.actions.length || this.isApplied(prediction)) return;
@@ -157,7 +157,7 @@ export class PredictionService {
         ];
         if (plan?.ids.length) actions.push({ kind: 'move_agents', neighborhood: n.name, agentIds: plan.ids });
 
-        const steps = [`abrir OS imediata para ${down.map((e) => e.serialNumber).join(', ')}`, ...(plan?.parts ?? [])];
+        const steps = [`abrir ocorrência e acionar a equipe técnica para ${down.map((e) => e.serialNumber).join(', ')}`, ...(plan?.parts ?? [])];
         result.push({
           id: `collapse:${n.name}`,
           kind: 'traffic_collapse',
@@ -205,7 +205,7 @@ export class PredictionService {
             effectiveEvidence,
             ...surgeEvidence,
           ],
-          recommendation: `Abrir OS imediata para ${series} antes do próximo pico, para o bairro não se aproximar do colapso.`,
+          recommendation: `Abrir ocorrência e acionar a equipe técnica para ${series} antes do próximo pico, para o bairro não se aproximar do colapso.`,
           actions: [{ kind: 'maintenance', equipmentIds: down.map((e) => e.id), priority: 'immediate', nextDate: daysFromToday(0) }],
         });
       }
@@ -327,7 +327,7 @@ export class PredictionService {
           ...(overdue ? [`${overdue} unidade(s) com manutenção preventiva vencida`] : []),
         ],
         recommendation:
-          `Abrir OS imediata para ${failing.map((e) => e.serialNumber).join(', ')}` +
+          `Abrir ocorrência e acionar a equipe técnica para ${failing.map((e) => e.serialNumber).join(', ')}` +
           (healthy.length ? ` e antecipar a preventiva das ${healthy.length} unidades operacionais do lote para amanhã.` : '.'),
         actions,
       });

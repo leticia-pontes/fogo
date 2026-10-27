@@ -337,7 +337,7 @@ export const OPENAPI = {
         tags: ['Simulação'],
         summary: 'Aplica a recomendação de uma previsão da Cidade Preditiva (grava, abre ocorrências e audita)',
         description:
-          'Numa transação: aplica as ações (manutenção e remanejamento de agentes), abre uma ocorrência por equipamento com OS imediata (idempotente) e registra `APLICAR_PREVISAO` na auditoria. As assinaturas das ações aplicadas voltam em `acoesAplicadas` no estado.',
+          'Numa transação: aplica as ações (manutenção e remanejamento de agentes), abre uma ocorrência por equipamento enviado à equipe técnica com prioridade imediata (idempotente) e registra `APLICAR_PREVISAO` na auditoria. As assinaturas das ações aplicadas voltam em `acoesAplicadas` no estado.',
         parameters: [{ $ref: '#/components/parameters/usuario' }],
         requestBody: body(
           {

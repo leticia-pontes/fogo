@@ -61,7 +61,7 @@ describe('PredictionService', () => {
       expect(byKind('enforcement_gap')).toEqual([]);
     });
 
-    it('abaixo do limiar, fiscalização fora gera alerta de atenção com OS imediata', () => {
+    it('abaixo do limiar, fiscalização fora gera alerta de atenção que aciona a equipe técnica', () => {
       const camera = makeEquipment({ type: 'camera', status: 'malfunction', neighborhood: HOOD_A });
       city.equipment.set([camera, makeEquipment({ type: 'radar', neighborhood: HOOD_A })]);
 
@@ -133,7 +133,7 @@ describe('PredictionService', () => {
       expect(city.events()[0].kind).toBe('prediction_applied');
     });
 
-    it('abre uma ocorrência por equipamento com OS imediata, com o tipo da situação de antes, sem duplicar', async () => {
+    it('abre uma ocorrência por equipamento enviado à equipe técnica, com o tipo da situação de antes, sem duplicar', async () => {
       const radar = makeEquipment({ type: 'radar', status: 'malfunction' });
       const camera = makeEquipment({ type: 'camera', status: 'stolen' });
       city.equipment.set([radar, makeEquipment({ type: 'radar', status: 'malfunction' }), camera]);

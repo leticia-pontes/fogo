@@ -82,7 +82,7 @@ export function aplicarAcoesPrevisao(estado: CityState, acoes: readonly Predicti
 }
 
 /**
- * Ocorrências que a recomendação abre: uma por equipamento com OS imediata, com o tipo de alerta da
+ * Ocorrências que a recomendação abre: uma por equipamento enviado à equipe técnica com prioridade imediata, com o tipo de alerta da
  * situação ANTES da ação (furto, falha ou manutenção). Idempotente: já havendo uma não encerrada para o
  * mesmo equipamento (de qualquer tipo), devolve a existente com `criada: false`.
  */
@@ -96,7 +96,7 @@ export function abrirOcorrenciasDaPrevisao(
   const atual = [...lista];
   const out: { ocorrencia: Ocorrencia; criada: boolean }[] = [];
   for (const id of ids) {
-    // Uma ocorrência aberta por equipamento basta: depois da OS, a "falha" vira "manutenção" e não deve gerar outra.
+    // Uma ocorrência aberta por equipamento basta: depois de acionada a equipe, a "falha" vira "manutenção" e não deve gerar outra.
     const aberta = atual.find((o) => o.equipamentoId === id && o.status !== 'encerrada');
     if (aberta) {
       out.push({ ocorrencia: aberta, criada: false });

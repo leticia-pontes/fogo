@@ -326,7 +326,7 @@ describe('API + SQLite', () => {
       const acoes = [{ kind: 'maintenance', equipmentIds: [furtado.id, emFalha.id], priority: 'immediate', nextDate: '2026-10-27' }];
       const assinatura = `mnt:immediate:${[furtado.id, emFalha.id].sort().join(',')}`;
 
-      const res = await call('POST', '/previsoes/aplicar', { previsaoId: 'collapse:teste', recomendacao: 'Abrir OS imediata', acoes });
+      const res = await call('POST', '/previsoes/aplicar', { previsaoId: 'collapse:teste', recomendacao: 'Abrir ocorrência e acionar a equipe técnica', acoes });
       expect(res.status).toBe(200);
       expect(res.data.ocorrencias.map((o: { tipoAlerta: string }) => o.tipoAlerta).sort()).toEqual(['falha', 'furto']);
       expect(res.data.equipment.find((e: Equipment) => e.id === emFalha.id).status).toBe('maintenance');

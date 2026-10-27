@@ -196,7 +196,7 @@ export const REGRAS: readonly Regra[] = [
   {
     id: 'QUEDA_DE_ENERGIA',
     quando: (c) => c.tipoAlerta === 'falha' && !!c.quedaEnergia,
-    decisao: 'Acionar a concessionária de energia e deslocar agentes para os pontos sem fiscalização, sem abrir OS individuais',
+    decisao: 'Acionar a concessionária de energia e deslocar agentes para os pontos sem fiscalização, sem acionar a equipe técnica equipamento por equipamento',
     justificativa: () => 'Vários equipamentos fixos do bairro caíram juntos: a causa provável é a alimentação, não o equipamento.',
     topico: 'energia',
     consulta: 'queda de energia concessionária vários equipamentos apagão',
@@ -205,7 +205,7 @@ export const REGRAS: readonly Regra[] = [
   {
     id: 'FALHA_EM_LOTE',
     quando: (c) => c.tipoAlerta === 'falha' && c.falhasMesmoModelo >= 1,
-    decisao: 'Abrir OS de troca em lote do modelo e antecipar a preventiva das unidades que ainda operam',
+    decisao: 'Acionar a equipe técnica para a troca em lote do modelo e antecipar a preventiva das unidades que ainda operam',
     justificativa: (c) =>
       `${plural(c.falhasMesmoModelo, 'outro equipamento', 'outros equipamentos')} ${c.fabricante ?? ''} ${c.modelo ?? ''} também em falha: indício de defeito de lote.`
         .replace(/\s+/g, ' ')
@@ -217,7 +217,7 @@ export const REGRAS: readonly Regra[] = [
   {
     id: 'FALHA_ISOLADA',
     quando: (c) => c.tipoAlerta === 'falha',
-    decisao: 'Abrir OS corretiva imediata',
+    decisao: 'Acionar a equipe técnica para manutenção corretiva imediata',
     justificativa: () => 'Falha sem outras unidades do mesmo modelo em falha: tratamento corretivo do equipamento.',
     topico: 'falha',
     consulta: 'falha corretiva imediata verificar alimentação',

@@ -173,7 +173,7 @@ export class PredictiveEngineComponent {
   });
 
   /**
-   * O que ainda falta numa previsão já aplicada. Abrir OS não conserta na hora: o equipamento fica
+   * O que ainda falta numa previsão já aplicada. Acionar a equipe técnica não conserta na hora: o equipamento fica
    * "em manutenção" (indisponível) até a equipe concluir, e só então a previsão baixa ou some.
    */
   pendencia(p: Prediction): string {
@@ -182,7 +182,7 @@ export class PredictiveEngineComponent {
     if (fora.length) {
       return `Equipe técnica acionada: ${fora.length} equipamento(s) ainda fora de operação (${fora
         .map((e) => e.serialNumber)
-        .join(', ')}). O risco baixa quando a manutenção for concluída: Central → Rota de manutenção → Concluir, ou mudando a situação para Operacional.`;
+        .join(', ')}). O risco baixa quando o reparo for concluído: Central → Rota de manutenção (a fila da equipe técnica) → Concluir, ou mudando a situação para Operacional.`;
     }
     return 'Ações executadas. O risco que resta vem de fatores fora do alcance desta recomendação (fluxo no pico, efetivo do bairro).';
   }

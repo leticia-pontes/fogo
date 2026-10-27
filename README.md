@@ -155,7 +155,7 @@ Elas também **não são ilhas**. Todas usam o mesmo núcleo de regras (`src/app
 
 | Funcionalidade | Por que é necessária |
 | --- | --- |
-| **Cidade Preditiva** (colapso viário, fiscalização comprometida, falha em lote, falta de efetivo, novos furtos) | É a Parte 3. Cada previsão mostra as variáveis que a geraram e uma recomendação que pode ser aplicada com um clique: a previsão vira ação. Aplicar abre uma ocorrência para cada equipamento com OS imediata e fica registrado na auditoria. |
+| **Cidade Preditiva** (colapso viário, fiscalização comprometida, falha em lote, falta de efetivo, novos furtos) | É a Parte 3. Cada previsão mostra as variáveis que a geraram e uma recomendação que pode ser aplicada com um clique: a previsão vira ação. Aplicar abre uma ocorrência para cada equipamento enviado à equipe técnica e fica registrado na auditoria. |
 | **Cenários de crise reversíveis** (apagão, onda de furtos, degradação, véspera de pico) | Antecipar exige treinar. Os cenários provocam a crise em segundos, sem estragar os dados, e depois revertem só o que mudaram. Também são a forma mais rápida de quem avalia ver o sistema reagir. |
 
 ### 4. Decidir: o que eu faço, e quanto custa?
@@ -163,7 +163,7 @@ Elas também **não são ilhas**. Todas usam o mesmo núcleo de regras (`src/app
 | Funcionalidade | Por que é necessária |
 | --- | --- |
 | **Simulador "e se…?" + próxima melhor ação** | A Parte 3 pede *"recomendações para apoiar a tomada de decisão"*. O gestor vê o **antes × depois** de uma decisão **antes** de tomá-la, e o sistema ranqueia as 3 ações de maior ganho, com justificativa e confiança. Simular nunca grava nada. |
-| **Rota de manutenção** | Destacar 10 alertas não diz à equipe técnica por onde começar. A rota ordena as paradas (críticas primeiro, depois as mais próximas), desenha no mapa o percurso **pelas ruas** e cada parada concluída atualiza a cidade inteira. |
+| **Rota de manutenção** | É a fila de trabalho da equipe técnica. Destacar 10 alertas não diz à equipe por onde começar. A rota ordena as paradas (críticas primeiro, depois as mais próximas), desenha no mapa o percurso **pelas ruas** e cada parada concluída atualiza a cidade inteira. |
 
 ### 5. Resolver: foi feito e está registrado?
 
@@ -279,13 +279,13 @@ Nível: **ALTO** ≥ 55, **MÉDIO** ≥ 35, **BAIXO** abaixo. A região no mapa 
 
 | Previsão | Base de dados | Ação aplicada |
 | --- | --- | --- |
-| Colapso viário | radares, câmeras e cancelas indisponíveis + fluxo histórico no pico + déficit de agentes (escore ≥ 55) | OS imediata e convocação ou realocação de agentes |
-| Fiscalização comprometida | radar, câmera ou cancela fora de operação num bairro ainda abaixo do limiar de colapso; mostra quantos pontos faltam para ele | OS imediata para os equipamentos fora |
-| Falha em lote | taxa de falha de um fabricante/modelo comparada ao restante da frota | OS imediata nas unidades em falha e preventiva antecipada nas demais |
+| Colapso viário | radares, câmeras e cancelas indisponíveis + fluxo histórico no pico + déficit de agentes (escore ≥ 55) | ocorrência e equipe técnica para os equipamentos fora; convocação ou realocação de agentes |
+| Fiscalização comprometida | radar, câmera ou cancela fora de operação num bairro ainda abaixo do limiar de colapso; mostra quantos pontos faltam para ele | ocorrência e equipe técnica para os equipamentos fora |
+| Falha em lote | taxa de falha de um fabricante/modelo comparada ao restante da frota | ocorrência e equipe técnica para as unidades em falha; preventiva antecipada nas demais |
 | Reforço de efetivo | efetivo atual × necessário no pico + ocorrências por semana | convoca agentes de folga ou realoca excedentes |
 | Novos furtos | 2 ou mais furtos no mesmo bairro + Guarda/PM em serviço | convoca ou desloca viaturas da Guarda/PM |
 
-**Aplicar recomendação** grava tudo numa transação (`POST /api/previsoes/aplicar`): a situação dos equipamentos e agentes, uma ocorrência por equipamento com OS imediata (sem duplicar as já abertas) e o registro `APLICAR_PREVISAO` na auditoria. A marca de "aplicada" vem dessa auditoria, então continua depois de recarregar a página. Abrir OS não conserta na hora: o equipamento fica "em manutenção" até a equipe concluir, e o card aplicado mostra o que ainda falta.
+**Aplicar recomendação** grava tudo numa transação (`POST /api/previsoes/aplicar`): a situação dos equipamentos e agentes, uma ocorrência por equipamento enviado à equipe técnica (sem duplicar as já abertas) e o registro `APLICAR_PREVISAO` na auditoria. A marca de "aplicada" vem dessa auditoria, então continua depois de recarregar a página. Acionar a equipe não conserta na hora: o equipamento fica "em manutenção", com prioridade imediata, e entra na **Rota de manutenção**, que é a fila de trabalho da equipe técnica. O card aplicado mostra o que ainda falta, e o risco baixa quando a parada é concluída.
 
 Os pesos estão em `prediction.service.ts` e aparecem na própria tela, em "Como as previsões são calculadas".
 
@@ -340,7 +340,7 @@ A cidade é dividida em células de **250 m**. Uma célula está coberta se o ce
 | `FURTO_ISOLADO` | furto | BO, bloquear o equipamento e pedir reposição |
 | `QUEDA_DE_ENERGIA` | falha + energia | Acionar a concessionária |
 | `FALHA_EM_LOTE` | falha + lote | Troca em lote e preventiva antecipada |
-| `FALHA_ISOLADA` | falha | OS corretiva imediata |
+| `FALHA_ISOLADA` | falha | Equipe técnica para manutenção corretiva imediata |
 | `MANUTENCAO` | demais casos | Executar a preventiva pendente |
 
 Sem trecho que sustente a decisão, a confiança cai para **baixa** e isso é dito.
@@ -500,6 +500,7 @@ Sem microfone, sem internet ou noutro navegador, **digite** a pergunta: a respos
 - **Sem autenticação:** a auditoria registra o autor pelo cabeçalho `x-usuario` (o painel envia "gestor (painel)").
 - **Modo offline** (incluindo a versão publicada): tudo funciona com as mesmas regras, mas sem banco, histórico nem auditoria; a investigação usa só as mudanças registradas no próprio navegador.
 - **Ocorrências:** uma por equipamento + tipo de alerta enquanto aberta; um despacho por ocorrência.
+- **Ordens de serviço:** não há registro próprio de OS. O problema é acompanhado pela **ocorrência**, e o trabalho da equipe técnica pela **Rota de manutenção** (equipamentos em manutenção com prioridade imediata, concluídos parada a parada). Um registro de OS separado passaria a fazer sentido com equipes técnicas cadastradas, prazos de atendimento, materiais e custo.
 - **Relatório e comprovante** comparam a cidade inteira na abertura e agora: a variação inclui tudo o que mudou no período, não só a ocorrência. O "atendido por" é o agente despachado.
 - **Comprovante no link:** é uma cópia do cupom no momento da emissão; quem tiver o link vê os dados (documento interno de demonstração, sem dados pessoais além do nome do agente).
 - **QR Code em `localhost`:** o link usa o IP da rede local; se o escolhido não for o certo (VPN, máquina virtual), defina `FOGO_URL_PUBLICA`. O Chrome do Android não abre endereços da rede local, e o Brave pede permissão para acessar dispositivos próximos; pela versão publicada isso não acontece (veja [Navegadores testados](#navegadores-testados)).

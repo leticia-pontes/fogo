@@ -367,7 +367,7 @@ route('POST', '/api/reset', (req, ctx) => {
 
 /**
  * Aplica a recomendação de uma previsão numa transação: grava equipamentos e agentes, abre uma
- * ocorrência por equipamento com OS imediata (idempotente) e registra APLICAR_PREVISAO na auditoria,
+ * ocorrência por equipamento enviado à equipe técnica com prioridade imediata (idempotente) e registra APLICAR_PREVISAO na auditoria,
  * com as assinaturas das ações (é delas que o painel sabe que a recomendação já foi aplicada).
  */
 route('POST', '/api/previsoes/aplicar', (req, ctx) => {
