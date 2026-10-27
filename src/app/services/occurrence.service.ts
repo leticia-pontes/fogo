@@ -2,6 +2,7 @@ import { Injectable, PLATFORM_ID, computed, effect, inject, signal, untracked } 
 import { isPlatformBrowser } from '@angular/common';
 import { RESOLUCAO_LABELS, Resolucao, encerrarOcorrencia, gerarRelatorio } from '../core/closure';
 import { Despacho, ResultadoDespacho, bloqueioDespacho, despachar, sugerirDespacho } from '../core/dispatch';
+import { Comprovante, montarComprovante } from '../core/comprovante';
 import { Dossie, EventoSituacao, investigarOcorrencia } from '../core/investigation';
 import { Ocorrencia, TIPO_ALERTA_LABELS, TipoAlerta, abrirOcorrencia } from '../core/occurrences';
 import { MANUAIS } from '../data/manuals-index';
@@ -9,6 +10,7 @@ import { ServerState, api } from './api';
 import { CityStateService } from './city-state.service';
 import { SimulationService } from './simulation.service';
 import { UiStateService } from './ui-state.service';
+import { VoiceAgentService } from './voice-agent.service';
 
 const STORAGE_KEY = 'fogo:ocorrencias:v1';
 const EVENTS_KEY = 'fogo:eventos-situacao:v1';
@@ -24,6 +26,7 @@ export class OccurrenceService {
   private readonly city = inject(CityStateService);
   private readonly sim = inject(SimulationService);
   private readonly ui = inject(UiStateService);
+  private readonly voice = inject(VoiceAgentService);
   private readonly isBrowser = isPlatformBrowser(inject(PLATFORM_ID));
 
   readonly list = signal<Ocorrencia[]>([]);
@@ -57,6 +60,9 @@ export class OccurrenceService {
 
   /** Relatório em tela (Markdown) da ocorrência selecionada. */
   readonly report = signal<{ ocorrenciaId: string; markdown: string } | null>(null);
+
+  /** Comprovante aberto no modal (null = fechado). */
+  readonly receipt = signal<Comprovante | null>(null);
 
   /** Modo offline: mudanças de situação registradas no navegador (no online, vêm de eventos_situacao). */
   private localEvents: EventoSituacao[] = [];
@@ -231,11 +237,28 @@ export class OccurrenceService {
       this.city.log(`${id} encerrada: ${RESOLUCAO_LABELS[resolucao].toLowerCase()}`, 'good', 'system');
       this.ui.notify(`${id} encerrada. O relatório está pronto.`, 'good');
       await this.loadReport(id);
+      await this.openReceipt(id);
     } catch (err) {
       this.error.set((err as Error).message);
       this.ui.notify(`Não foi possível encerrar: ${(err as Error).message}`, 'bad');
     } finally {
       this.busy.set(false);
+    }
+  }
+
+  /** Emite o comprovante (online: GET /api/ocorrencias/:id/comprovante; offline: mesma função pura) e abre o modal. */
+  async openReceipt(id: string): Promise<void> {
+    this.error.set(null);
+    try {
+      const comprovante =
+        this.city.mode() === 'online'
+          ? await api<Comprovante>('GET', `/ocorrencias/${encodeURIComponent(id)}/comprovante`)
+          : montarComprovante(this.find(id), this.city.snapshot(), new Date());
+      this.receipt.set(comprovante);
+      this.voice.speak('Comprovante emitido.');
+    } catch (err) {
+      this.error.set((err as Error).message);
+      this.ui.notify(`Não foi possível emitir o comprovante: ${(err as Error).message}`, 'bad');
     }
   }
 

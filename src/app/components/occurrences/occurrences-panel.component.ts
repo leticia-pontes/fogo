@@ -230,6 +230,15 @@ const STATUS_STYLES: Record<StatusOcorrencia, string> = {
           }
         </section>
 
+        @if (o.status === 'encerrada') {
+          <section class="space-y-2 border-t border-fogo-border pt-3" aria-label="Comprovante">
+            <button type="button" class="btn-primary w-full" (click)="occ.openReceipt(o.id)">Emitir comprovante</button>
+            @if (!report(o)) {
+              <button type="button" class="btn-secondary w-full" (click)="occ.loadReport(o.id)">Ver relatório</button>
+            }
+          </section>
+        }
+
         <section class="space-y-2 border-t border-fogo-border pt-3" aria-label="Relatório">
           <div class="flex items-center justify-between gap-2">
             <h4 class="text-xs font-semibold uppercase tracking-wide text-fogo-ember">Relatório</h4>

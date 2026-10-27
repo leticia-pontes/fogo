@@ -95,7 +95,7 @@ O enunciado avisa que *"não será sobre quem usou mais tecnologia, mais IA ou m
 | **Manuais + regras, sem IA generativa** | O desafio valoriza *"explicabilidade"* e avisa que *"a tecnologia escolhida não será o mais importante"*. Uma recomendação operacional precisa dizer de onde veio | Busca por palavras-chave (BM25) em manuais e uma tabela de regras declarativa: cada decisão cita arquivo e seção, declara confiança e limitações, e dá sempre a mesma resposta para o mesmo caso. Sem chave de API, sem rede e sem alucinação |
 | **Missão guiada de 3 passos** | Experiência de uso é critério de avaliação, e a comissão vai testar *"tanta coisa"* | Em três passos, quem nunca viu o sistema descobre onde está cada parte. Quem já conhece pula direto para o modo livre |
 | **Modo offline** | Se a API não subir (ou num deploy estático), o painel não pode virar uma tela branca | Tudo funciona no navegador com as mesmas funções puras, só sem banco, histórico e auditoria |
-| **134 testes automatizados** | Qualidade técnica e *"demonstrar entendimento daquilo que a IA construiu"* | As regras (simulação, cobertura, rota, boletim, cenários, ocorrências, manuais), a API e a persistência são verificadas a cada `npm test`. As fórmulas não dependem de confiança, dependem de teste |
+| **146 testes automatizados** | Qualidade técnica e *"demonstrar entendimento daquilo que a IA construiu"* | As regras (simulação, cobertura, rota, boletim, cenários, ocorrências, manuais, comprovante), a API e a persistência são verificadas a cada `npm test`. As fórmulas não dependem de confiança, dependem de teste |
 
 ## Tecnologias e por quê
 
@@ -474,6 +474,16 @@ Cada decisão traz justificativa com a evidência, as fontes (arquivo › seçã
 - **Resoluções:** reposto e consertado devolvem o equipamento a "Operacional" com novo ciclo de preventiva (90 dias); falso alarme devolve a "Operacional" só limpando a pendência; outro mantém a situação. Encerrar duas vezes dá **409**.
 - **Relatório** (`gerarRelatorio`, Markdown no tom da PROMETHEUS, determinístico): resumo; linha do tempo da auditoria; tabela de impacto **na abertura × agora** (disponibilidade, saúde, risco e cobertura do bairro, cobertura e pontos cegos da cidade, com variação em pontos percentuais); ações executadas; padrões, prevenção sugerida e fontes dos manuais. Ocorrência sem investigação ou sem despacho também gera relatório, dizendo que a etapa não ocorreu.
 
+### Comprovante de ocorrência
+
+Um "cupom de papel" emitido quando a ocorrência é **encerrada**: número, selo ENCERRADA, equipamento, local, horários, duração, quem atendeu, resolução, a cidade **na abertura → agora** e uma frase da PROMETHEUS.
+
+- **Como emitir:** encerre uma ocorrência na aba **Ocorrências** e o comprovante abre sozinho (a voz da PROMETHEUS diz "Comprovante emitido.", se o navegador falar). Depois, em qualquer ocorrência encerrada, use **Emitir comprovante**.
+- **Imprimir ou salvar PDF:** `window.print()`. A impressão mostra só o cupom, com o papel creme preservado (`print-color-adjust: exact`), recortes brancos e margem de 10 mm. **Copiar texto** copia a versão em texto puro (até 42 colunas).
+- **Rota:** `GET /api/ocorrencias/:id/comprovante` (200; 404 se não existe; 409 se ainda não foi encerrada). No modo offline, o painel chama a mesma função localmente.
+- **Função pura:** `montarComprovante(ocorrencia, estadoAtual, agora, { fusoHorario })` em `core/comprovante.ts`. "Antes" vem do `snapshotAbertura`; "agora" é recalculado do estado atual com `calcularIndicadores`, `calcularSaudePorRegiao` e `calcularRisco` (via `montarSnapshot`). **Detectado** = momento da detecção registrado no dossiê, ou a abertura quando não há registro; **Duração** = encerramento − detecção; **Atendido por** = agente do despacho ("Sem agente despachado" quando não houve). A frase usa 3 templates por resolução, escolhidos pelo número do id, e só cita a duração e a variação real da saúde do bairro (positiva, zero ou negativa).
+- **Sem QR Code nem código de barras**, por decisão: o comprovante é um documento interno de demonstração, sem nada para validar fora do sistema. O rodapé diz isso e que os valores são estimados por regras.
+
 ## Agente de voz PROMETHEUS
 
 Botão redondo com o **microfone**, flutuando no canto da tela. Ele abre o painel **PROMETHEUS · Voz**: você pergunta (falando ou digitando) e a PROMETHEUS responde em texto e em voz alta, com os números do estado atual da cidade.
@@ -529,18 +539,20 @@ O código fica em `services/voice-agent.service.ts` (reconhecimento, síntese e 
 
 ## Testes
 
-`npm test` roda **134 testes** (Vitest): 113 do painel e das regras via `ng test` e 21 da API, do SQLite e do gerador de manuais (`npm run test:server`).
+`npm test` roda **146 testes** (Vitest): 124 do painel e das regras via `ng test` e 22 da API, do SQLite e do gerador de manuais (`npm run test:server`).
 
 - `core/simulation.spec.ts`: simular não altera o estado original; desativar nunca aumenta disponibilidade nem cobertura; realocar tira efetivo da origem e soma no destino; antecipar manutenção nunca piora a saúde; diferenças ordenadas; recomendações ordenadas por ganho, determinísticas e a primeira realmente melhora os indicadores; cobertura (um equipamento isolado cobre só as células dentro do raio, desativá-lo reduz a cobertura, dois sobrepostos não perdem cobertura quando um cai, agente fora de turno não cobre).
 - `core/maintenance-route.spec.ts`: imediatas antes das de menor criticidade, sem paradas repetidas, distância total = soma dos trechos, lista vazia sem erro, filtros e furtados fora.
 - `core/bulletin.spec.ts`: o boletim cita os números corretos, muda quando o estado muda e, sem alertas, diz "tudo sob controle".
 - `core/scenarios.spec.ts`: cada cenário altera o estado sem mutar a entrada e é reproduzível; reverter devolve exatamente o estado anterior e preserva itens criados depois.
-- `server/api.spec.ts`: banco criado e populado na primeira execução e não repopulado depois; criar, consultar, editar e desativar equipamento e agente persistem entre reinícios; validação das propriedades por tipo; `sync` com histórico e alertas; cenário persistido e revertido; simulação não grava e aplicar grava e audita; reset restaura o estado inicial; toda rota da API está documentada no OpenAPI e o Swagger UI responde; ocorrências (abrir idempotente com 201/200, 400, 404, persistência, dossiê, despacho, encerramento com 409 na segunda vez e relatório com a linha do tempo em ordem).
+- `server/api.spec.ts`: banco criado e populado na primeira execução e não repopulado depois; criar, consultar, editar e desativar equipamento e agente persistem entre reinícios; validação das propriedades por tipo; `sync` com histórico e alertas; cenário persistido e revertido; simulação não grava e aplicar grava e audita; reset restaura o estado inicial; toda rota da API está documentada no OpenAPI e o Swagger UI responde; ocorrências (abrir idempotente com 201/200, 400, 404, persistência, dossiê, despacho, encerramento com 409 na segunda vez, relatório com a linha do tempo em ordem e comprovante 409/200/404).
 - `core/occurrences.spec.ts`: tipo de alerta pela situação; abrir é idempotente por equipamento + tipo e não muta a entrada; snapshot com os mesmos números dos indicadores.
 - `core/manuals.spec.ts`: a busca acha o manual do tipo certo, o bônus de fabricante leva o trecho específico ao topo, resultado determinístico e lista vazia sem erro; cada uma das 7 regras decide e cita fonte; sem trecho, confiança baixa.
 - `core/investigation.spec.ts`: cada padrão dispara no cenário certo (furtos → vizinhança, degradação → lote, apagão → energia) e não dispara no oposto; o dossiê não altera o estado, é determinístico e funciona sem histórico.
 - `core/dispatch.spec.ts`: perfil por tipo de alerta, ordenação por ETA, convocação com penalidade, simular não grava e despachar sim, retorno exato à origem, lista vazia sem agentes livres, fallback para qualquer agente em serviço.
 - `core/closure.spec.ts`: encerramento por resolução, recusa do segundo encerramento, relatório com os números da abertura e de agora, linha do tempo ordenada, relatório sem investigação/despacho e texto determinístico.
+- `core/comprovante.spec.ts`: cita os números do snapshot e do estado atual, determinístico e sem mutar a entrada, "Detectado" pelo evento do dossiê, formatos de duração, frase da PROMETHEUS diferente por resolução e com a duração, erro tipado para ocorrência aberta, `textoPlano` com todos os campos em até 42 colunas.
+- `components/comprovante/comprovante-modal.component.spec.ts`: renderiza campos, selo e frase; "Copiar texto" copia o `textoPlano`; ESC fecha o modal.
 - `server/manuals.spec.ts`: `gerar-manuais` produz JSON válido e igual ao versionado, com manual para todo tipo de equipamento.
 - `city-map.spec.ts`: telemetria anda sempre sobre as vias do bairro; o clique numa via encaixa o ponto no eixo da via certa, com bairro e CEP do bairro, traz o KM em rodovia e não devolve nada fora da cidade.
 - `city-state.service.spec.ts`, `prediction.service.spec.ts`, `marker-sync.spec.ts`: KPIs, filtros, alertas, previsões da Parte 3 e mapa incremental (testes anteriores, mantidos).
@@ -574,12 +586,14 @@ Com o agrupamento, a mesma frota aparece como 85 ícones (58 grupos, 24 agentes 
 - **Manuais são fictícios**, escritos para a demonstração, e a recuperação é por palavras-chave com regras: entende sinônimos só na medida em que os manuais usam as mesmas palavras.
 - **Investigação offline** usa as mudanças de situação registradas no próprio navegador (desde que a página foi aberta) e não tem auditoria; o relatório offline monta a linha do tempo com as datas gravadas na ocorrência.
 - **Impacto no relatório** compara a cidade inteira na abertura e agora: a variação inclui tudo o que mudou no período, não só a ocorrência (o próprio relatório avisa).
+- **Comprovante:** o encerramento não tem campo "atendido por"; o cupom usa o agente despachado. A cidade "agora" é a do momento da emissão, não a do encerramento (reemitir depois pode mudar esses números). Se o equipamento foi excluído, os dados vêm do dossiê.
+- **Testes no Windows / Node 26:** o checkout com CRLF fazia o gerador de manuais achar 0 trechos (corrigido: o parser normaliza as quebras de linha). No Node ≥ 25, o `localStorage` nativo do Node encobre o do jsdom e quebra os testes de serviço; rode `NODE_OPTIONS=--no-experimental-webstorage npm test` (no Node 22/24 não é preciso).
 - **Desempenho das recomendações** cresce com o número de candidatas; com milhares de equipamentos em falha, só as 12 manutenções mais urgentes são simuladas por completo.
 
 ## Uso de IA no desenvolvimento
 
 O código foi desenvolvido com apoio de assistentes de IA: **Claude** (Claude Code) e **Gemini** (Antigravity). Na etapa final (cenários com reversão, banco SQLite e API, simulador, próxima melhor ação, pontos cegos, rota de manutenção e boletim), o Claude Code (modelo Claude Opus 5.5) escreveu o código e os testes a partir de uma especificação detalhada do autor, que revisou as decisões. As pastas `.agents/` e `.gemini/` guardam a especificação usada como contexto pelas IAs e ficam fora do pacote de entrega (`.gitattributes`).
 
-No fluxo de ocorrências, o Claude Code também escreveu, por especificação do autor, os **manuais sintéticos** em `manuais/` (textos fictícios, sem relação com documentação real de fabricantes), as regras de decisão e os testes.
+No fluxo de ocorrências, o Claude Code também escreveu, por especificação do autor, os **manuais sintéticos** em `manuais/` (textos fictícios, sem relação com documentação real de fabricantes), as regras de decisão e os testes. O comprovante de ocorrência (função pura, rota, cupom, modal e testes) também foi escrito pelo Claude Code a partir da especificação e do layout de referência do autor.
 
-A aplicação **não chama nenhuma IA em tempo de execução** e não precisa de chave de API: previsões, recomendações, a investigação, a decisão pelos manuais, o boletim e o relatório são regras e templates explicáveis, com as fórmulas descritas neste README. Em caso de dúvidas, veja [Preciso de chave de API?](#preciso-de-chave-de-api-não).
+A aplicação **não chama nenhuma IA em tempo de execução** e não precisa de chave de API: previsões, recomendações, a investigação, a decisão pelos manuais, o boletim, o relatório e o comprovante são regras e templates explicáveis, com as fórmulas descritas neste README. Em caso de dúvidas, veja [Preciso de chave de API?](#preciso-de-chave-de-api-não).

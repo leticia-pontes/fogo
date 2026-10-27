@@ -49,6 +49,7 @@ import { SimulationService } from '../../services/simulation.service';
 import { RoutePanelComponent } from '../route/route-panel.component';
 import { OccurrencesPanelComponent } from '../occurrences/occurrences-panel.component';
 import { OccurrenceService } from '../../services/occurrence.service';
+import { ComprovanteModalComponent } from '../comprovante/comprovante-modal.component';
 import { TIPO_ALERTA_LABELS, TipoAlerta, tipoAlertaDoEquipamento } from '../../core/occurrences';
 import { BulletinCardComponent } from '../bulletin/bulletin-card.component';
 import { RouteService } from '../../services/route.service';
@@ -64,7 +65,7 @@ const SELECT_CLASS =
 @Component({
   selector: 'app-ops-center',
   standalone: true,
-  imports: [SimulatorPanelComponent, RoutePanelComponent, OccurrencesPanelComponent, BulletinCardComponent],
+  imports: [SimulatorPanelComponent, RoutePanelComponent, OccurrencesPanelComponent, BulletinCardComponent, ComprovanteModalComponent],
   template: `
     <div class="p-4 lg:p-5 space-y-4 max-w-[1800px] mx-auto">
       <!-- Filtros reativos -->
@@ -468,6 +469,9 @@ const SELECT_CLASS =
         </section>
       </div>
     </div>
+    @if (occ.receipt(); as comprovante) {
+      <app-comprovante-modal [comprovante]="comprovante" (fechar)="occ.receipt.set(null)" />
+    }
   `,
   styles: `
     .kpi { @apply bg-fogo-panel border border-fogo-border rounded-xl p-3.5 flex flex-col; }
