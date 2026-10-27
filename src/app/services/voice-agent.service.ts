@@ -94,7 +94,7 @@ export class VoiceAgentService {
   }
 
   /** `rate`: velocidade da fala (1 = natural); textos longos, como o boletim, pedem mais. */
-  speak(text: string, rate = 1.5): void {
+  speak(text: string, rate = 1.6): void {
     if (!this.canSpeak) return;
     speechSynthesis.cancel();
     // "agente(s)" e "lotado(s)" ficam estranhos lidos em voz alta.
