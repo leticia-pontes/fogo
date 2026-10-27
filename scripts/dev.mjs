@@ -10,7 +10,8 @@ const windows = process.platform === 'win32';
 
 // Fora do Windows, cada comando em seu próprio grupo de processos, para encerrar também os filhos.
 const procs = [
-  spawn(process.execPath, [bin('tsx/dist/cli.mjs'), 'server/main.ts'], { cwd: ROOT, stdio: 'inherit', detached: !windows }),
+  // `watch`: a API reinicia sozinha quando o código do servidor muda (como o painel, que recarrega).
+  spawn(process.execPath, [bin('tsx/dist/cli.mjs'), 'watch', '--clear-screen=false', 'server/main.ts'], { cwd: ROOT, stdio: 'inherit', detached: !windows }),
   spawn(process.execPath, [bin('@angular/cli/bin/ng.js'), 'serve'], { cwd: ROOT, stdio: 'inherit', detached: !windows }),
 ];
 let stopping = false;

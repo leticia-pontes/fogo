@@ -6,6 +6,8 @@ import { Comprovante, montarComprovante } from '../core/comprovante';
 import { linkDoComprovante } from '../core/comprovante-link';
 import { Dossie, EventoSituacao, investigarOcorrencia } from '../core/investigation';
 import { Ocorrencia, TIPO_ALERTA_LABELS, TipoAlerta, abrirOcorrencia } from '../core/occurrences';
+import { PredictionAction, abrirOcorrenciasDaPrevisao } from '../core/prediction-actions';
+import { CityState } from '../core/state';
 import { MANUAIS } from '../data/manuals-index';
 import { ServerState, api } from './api';
 import { CityStateService } from './city-state.service';
@@ -144,6 +146,21 @@ export class OccurrenceService {
     } finally {
       this.busy.set(false);
     }
+  }
+
+  /**
+   * Depois de aplicar uma recomendação da Cidade Preditiva. Online: a API já abriu as ocorrências, só
+   * recarrega a lista. Offline: abre aqui, com a mesma função pura (estado de ANTES da ação).
+   */
+  async aposAplicarPrevisao(antes: CityState, acoes: readonly PredictionAction[]): Promise<void> {
+    if (this.city.mode() === 'online') {
+      await this.refresh();
+      return;
+    }
+    const novas = abrirOcorrenciasDaPrevisao(this.list(), antes, acoes, new Date())
+      .filter((r) => r.criada)
+      .map((r) => r.ocorrencia);
+    if (novas.length) this.saveLocal([...novas.reverse(), ...this.list()]);
   }
 
   /** Gera o dossiê (online: GET /api/ocorrencias/:id/dossie, que grava; offline: mesma função pura). */

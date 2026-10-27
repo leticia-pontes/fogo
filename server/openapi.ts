@@ -332,6 +332,42 @@ export const OPENAPI = {
       },
     },
 
+    '/api/previsoes/aplicar': {
+      post: {
+        tags: ['Simulação'],
+        summary: 'Aplica a recomendação de uma previsão da Cidade Preditiva (grava, abre ocorrências e audita)',
+        description:
+          'Numa transação: aplica as ações (manutenção e remanejamento de agentes), abre uma ocorrência por equipamento com OS imediata (idempotente) e registra `APLICAR_PREVISAO` na auditoria. As assinaturas das ações aplicadas voltam em `acoesAplicadas` no estado.',
+        parameters: [{ $ref: '#/components/parameters/usuario' }],
+        requestBody: body(
+          {
+            type: 'object',
+            required: ['previsaoId', 'acoes'],
+            properties: {
+              previsaoId: { type: 'string' },
+              recomendacao: { type: 'string' },
+              acoes: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    kind: { type: 'string', enum: ['maintenance', 'move_agents'] },
+                    equipmentIds: { type: 'array', items: { type: 'string' } },
+                    priority: { type: 'string', enum: ['none', 'scheduled', 'immediate'] },
+                    nextDate: { type: 'string', example: '2026-10-27' },
+                    neighborhood: { type: 'string' },
+                    agentIds: { type: 'array', items: { type: 'string' } },
+                  },
+                },
+              },
+            },
+          },
+          { previsaoId: 'batch:Hikvision DarkFighter DS-2DF8436', acoes: [{ kind: 'maintenance', equipmentIds: ['EQ-002'], priority: 'immediate', nextDate: '2026-10-27' }] }
+        ),
+        responses: { 200: ok('Novo estado completo com `ocorrencias` (abertas ou já existentes)'), 400: erro('Ações inválidas') },
+      },
+    },
+
     '/api/rota-manutencao': {
       get: {
         tags: ['Consultas'],

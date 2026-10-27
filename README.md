@@ -33,7 +33,7 @@ O F.O.G.O. é a central de operações de **Nova Prometeia**, uma cidade fictíc
 npm install
 npm start          # API (porta 3000) + painel em http://localhost:4200
 npm run reset      # volta ao cenário inicial (apaga e recria o banco)
-npm test           # 159 testes: regras, painel e API
+npm test           # 162 testes: regras, painel e API
 ```
 
 | Endereço | O que é |
@@ -140,7 +140,7 @@ Elas também **não são ilhas**. Todas usam o mesmo núcleo de regras (`src/app
 | 2 – Central | Mapa com ícone por tipo e cor por situação, detalhes ao clicar | **Central de Operações** |
 | 2 – Central | KPIs, filtros (tipo, situação, bairro, órgão), alertas críticos, manutenção imediata e vencendo | Central: KPIs, filtros e aba **Alertas** |
 | 2 – Central | Visão consolidada por região | Bairros pintados no mapa (Normal, Atenção, Crítico) |
-| 3 – Preditiva | Previsões respondendo *o que é previsto*, *com base em quê* e *qual decisão tomar* | **Cidade Preditiva** (3 previsões, com botão para aplicar) |
+| 3 – Preditiva | Previsões respondendo *o que é previsto*, *com base em quê* e *qual decisão tomar* | **Cidade Preditiva** (5 tipos de previsão; aplicar grava, abre as ocorrências e audita) |
 
 ### 2. Perceber: o que está acontecendo agora?
 
@@ -155,7 +155,7 @@ Elas também **não são ilhas**. Todas usam o mesmo núcleo de regras (`src/app
 
 | Funcionalidade | Por que é necessária |
 | --- | --- |
-| **Cidade Preditiva** (colapso viário, falha em lote, falta de efetivo) | É a Parte 3. Cada previsão mostra as variáveis que a geraram e uma recomendação que pode ser aplicada com um clique: a previsão vira ação. |
+| **Cidade Preditiva** (colapso viário, fiscalização comprometida, falha em lote, falta de efetivo, novos furtos) | É a Parte 3. Cada previsão mostra as variáveis que a geraram e uma recomendação que pode ser aplicada com um clique: a previsão vira ação. Aplicar abre uma ocorrência para cada equipamento com OS imediata e fica registrado na auditoria. |
 | **Cenários de crise reversíveis** (apagão, onda de furtos, degradação, véspera de pico) | Antecipar exige treinar. Os cenários provocam a crise em segundos, sem estragar os dados, e depois revertem só o que mudaram. Também são a forma mais rápida de quem avalia ver o sistema reagir. |
 
 ### 4. Decidir: o que eu faço, e quanto custa?
@@ -191,7 +191,7 @@ alerta ──▶ abrir ──▶ investigar ──▶ despachar ──▶ encerr
 | **Modo offline** | Se a API não subir (ou no deploy estático), o painel não vira uma tela branca: as mesmas regras rodam no navegador. |
 | **Desempenho com frota grande** | Uma cidade real tem milhares de dispositivos. O mapa atualiza só o que mudou e agrupa marcadores: com 2.000 equipamentos, cada ciclo de telemetria leva cerca de 39 ms de script, contra 216 ms de um redesenho completo. |
 | **Missão guiada de 3 passos** | Há muita coisa para descobrir; em três passos, quem nunca viu o sistema encontra cada parte. Quem já conhece pula. |
-| **159 testes automatizados** | O desafio pede para *"demonstrar entendimento daquilo que a IA construiu"*. As fórmulas não dependem de confiança: dependem de teste. |
+| **162 testes automatizados** | O desafio pede para *"demonstrar entendimento daquilo que a IA construiu"*. As fórmulas não dependem de confiança: dependem de teste. |
 
 ## Por que regras, e não modelos de IA
 
@@ -279,9 +279,13 @@ Nível: **ALTO** ≥ 55, **MÉDIO** ≥ 35, **BAIXO** abaixo. A região no mapa 
 
 | Previsão | Base de dados | Ação aplicada |
 | --- | --- | --- |
-| Colapso viário | radares, câmeras e cancelas indisponíveis + fluxo histórico no pico + déficit de agentes | OS imediata e convocação ou realocação de agentes |
+| Colapso viário | radares, câmeras e cancelas indisponíveis + fluxo histórico no pico + déficit de agentes (escore ≥ 55) | OS imediata e convocação ou realocação de agentes |
+| Fiscalização comprometida | radar, câmera ou cancela fora de operação num bairro ainda abaixo do limiar de colapso; mostra quantos pontos faltam para ele | OS imediata para os equipamentos fora |
 | Falha em lote | taxa de falha de um fabricante/modelo comparada ao restante da frota | OS imediata nas unidades em falha e preventiva antecipada nas demais |
 | Reforço de efetivo | efetivo atual × necessário no pico + ocorrências por semana | convoca agentes de folga ou realoca excedentes |
+| Novos furtos | 2 ou mais furtos no mesmo bairro + Guarda/PM em serviço | convoca ou desloca viaturas da Guarda/PM |
+
+**Aplicar recomendação** grava tudo numa transação (`POST /api/previsoes/aplicar`): a situação dos equipamentos e agentes, uma ocorrência por equipamento com OS imediata (sem duplicar as já abertas) e o registro `APLICAR_PREVISAO` na auditoria. A marca de "aplicada" vem dessa auditoria, então continua depois de recarregar a página. Abrir OS não conserta na hora: o equipamento fica "em manutenção" até a equipe concluir, e o card aplicado mostra o que ainda falta.
 
 Os pesos estão em `prediction.service.ts` e aparecem na própria tela, em "Como as previsões são calculadas".
 
@@ -406,6 +410,7 @@ A stack sugerida citava PostgreSQL/PostGIS e modelos de ML. Para um projeto que 
 | `GET /api/alertas`, `GET /api/eventos`, `GET /api/auditoria` | Alertas, histórico e auditoria |
 | `GET /api/analise`, `GET /api/cobertura`, `GET /api/boletim` | Indicadores, saúde, risco, cobertura e boletim |
 | `POST /api/simulacao`, `GET /api/recomendacoes`, `POST /api/acoes/aplicar` | Simular (não grava), recomendar, aplicar |
+| `POST /api/previsoes/aplicar` | Aplicar a recomendação de uma previsão (grava, abre ocorrências e audita) |
 | `GET /api/rota-manutencao` | Rota de manutenção |
 | `POST /api/cenarios/:id`, `POST /api/cenarios/reverter` | Cenários de crise |
 | `POST/GET /api/ocorrencias`, `GET /api/ocorrencias/:id` | Abrir (idempotente), listar, consultar |
@@ -470,7 +475,7 @@ Sem microfone, sem internet ou noutro navegador, **digite** a pergunta: a respos
 
 ## Testes
 
-`npm test` roda **159 testes** (Vitest): 135 das regras e do painel e 24 da API com o banco.
+`npm test` roda **162 testes** (Vitest): 137 das regras e do painel e 25 da API com o banco.
 
 | Área | O que é garantido |
 | --- | --- |

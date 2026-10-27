@@ -319,6 +319,36 @@ describe('API + SQLite', () => {
       }
     });
 
+    it('aplicar recomendação da Cidade Preditiva grava, abre ocorrências, audita e persiste a marca de aplicada', async () => {
+      const { data: estado } = await call('GET', '/estado');
+      const furtado = estado.equipment.find((e: Equipment) => e.status === 'stolen');
+      const emFalha = estado.equipment.find((e: Equipment) => e.status === 'malfunction');
+      const acoes = [{ kind: 'maintenance', equipmentIds: [furtado.id, emFalha.id], priority: 'immediate', nextDate: '2026-10-27' }];
+      const assinatura = `mnt:immediate:${[furtado.id, emFalha.id].sort().join(',')}`;
+
+      const res = await call('POST', '/previsoes/aplicar', { previsaoId: 'collapse:teste', recomendacao: 'Abrir OS imediata', acoes });
+      expect(res.status).toBe(200);
+      expect(res.data.ocorrencias.map((o: { tipoAlerta: string }) => o.tipoAlerta).sort()).toEqual(['falha', 'furto']);
+      expect(res.data.equipment.find((e: Equipment) => e.id === emFalha.id).status).toBe('maintenance');
+
+      // Persistido: estado, ocorrências, auditoria e a marca de aplicada (sobrevive a recarregar o painel).
+      const depois = (await call('GET', '/estado')).data;
+      expect(depois.acoesAplicadas).toContain(assinatura);
+      expect(depois.equipment.find((e: Equipment) => e.id === emFalha.id).maintenance.priority).toBe('immediate');
+      expect((await call('GET', '/ocorrencias')).data).toHaveLength(2);
+      const acoesAuditadas = (await call('GET', '/auditoria')).data.map((a: { acao: string }) => a.acao);
+      expect(acoesAuditadas).toContain('APLICAR_PREVISAO');
+      expect(acoesAuditadas.filter((a: string) => a === 'ABRIR_OCORRENCIA')).toHaveLength(2);
+
+      // Idempotente para as ocorrências; entrada inválida dá 400.
+      const de_novo = await call('POST', '/previsoes/aplicar', { previsaoId: 'collapse:teste', acoes });
+      expect(de_novo.data.ocorrencias.every((o: { criada: boolean }) => !o.criada)).toBe(true);
+      expect((await call('GET', '/ocorrencias')).data).toHaveLength(2);
+      const ruim = await call('POST', '/previsoes/aplicar', { previsaoId: 'x', acoes: [{ kind: 'maintenance', equipmentIds: ['NAO-EXISTE'], priority: 'immediate', nextDate: 'ontem' }] });
+      expect(ruim.status).toBe(400);
+      expect(ruim.data.detalhes).toEqual(['acoes[0]: equipamento NAO-EXISTE não encontrado', 'acoes[0]: nextDate deve ser AAAA-MM-DD']);
+    });
+
     it('busca nos manuais pela API', async () => {
       const { status, data } = await call('GET', '/manuais/busca?q=falha%20lote%20troca&tipo=camera&fabricante=Hikvision');
       expect(status).toBe(200);

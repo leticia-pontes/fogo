@@ -13,6 +13,7 @@ import { recuperarTrechos } from '../src/app/core/manuals';
 import { JANELA_VIZINHANCA_H, investigarOcorrencia } from '../src/app/core/investigation';
 import { bloqueioDespacho, despachar, sugerirDespacho } from '../src/app/core/dispatch';
 import { Resolucao, encerrarOcorrencia, gerarRelatorio, validarEncerramento } from '../src/app/core/closure';
+import { PredictionAction, abrirOcorrenciasDaPrevisao, actionSignature, aplicarAcoesPrevisao, validarAcoesPrevisao } from '../src/app/core/prediction-actions';
 import { OcorrenciaNaoEncerradaError, montarComprovante, type Comprovante } from '../src/app/core/comprovante';
 import { renderComprovanteHtml } from '../src/app/core/comprovante-html';
 import { networkInterfaces } from 'node:os';
@@ -67,7 +68,7 @@ export class Contexto {
   }
 
   estadoCompleto() {
-    return { ...this.repo.lerEstado(), scenarioSnapshot: this.repo.cenarioAtivo() };
+    return { ...this.repo.lerEstado(), scenarioSnapshot: this.repo.cenarioAtivo(), acoesAplicadas: this.repo.listarAcoesPrevisaoAplicadas() };
   }
 }
 
@@ -358,6 +359,54 @@ route('POST', '/api/reset', (req, ctx) => {
   ctx.reset();
   ctx.repo.registrarAuditoria({ acao: 'RESET', autor: req.autor, descricao: 'Banco recriado com a seed de exemplo' });
   return ctx.estadoCompleto();
+});
+
+// -----------------------------------------------------------------------------
+// Cidade Preditiva: aplicar uma recomendação
+// -----------------------------------------------------------------------------
+
+/**
+ * Aplica a recomendação de uma previsão numa transação: grava equipamentos e agentes, abre uma
+ * ocorrência por equipamento com OS imediata (idempotente) e registra APLICAR_PREVISAO na auditoria,
+ * com as assinaturas das ações (é delas que o painel sabe que a recomendação já foi aplicada).
+ */
+route('POST', '/api/previsoes/aplicar', (req, ctx) => {
+  const body = (req.body ?? {}) as { previsaoId?: unknown; recomendacao?: unknown; acoes?: unknown };
+  const before = ctx.repo.lerEstado();
+  const errors = validarAcoesPrevisao(before, body.acoes);
+  if (typeof body.previsaoId !== 'string' || !body.previsaoId) errors.unshift('previsaoId é obrigatório');
+  if (errors.length) throw new HttpError(400, 'Dados inválidos', errors);
+  const acoes = body.acoes as PredictionAction[];
+  const recomendacao = typeof body.recomendacao === 'string' ? body.recomendacao : '';
+  const agora = new Date();
+  const ocorrencias = ctx.repo.transacao(() => {
+    const after = aplicarAcoesPrevisao(before, acoes);
+    persistState(ctx, before, after, 'acao');
+    const abertas = abrirOcorrenciasDaPrevisao(ctx.repo.listarOcorrencias(), before, acoes, agora);
+    for (const { ocorrencia, criada } of abertas) {
+      if (!criada) continue;
+      ctx.repo.abrirOcorrencia(ocorrencia);
+      const eq = before.equipment.find((e) => e.id === ocorrencia.equipamentoId)!;
+      ctx.repo.registrarAuditoria({
+        acao: 'ABRIR_OCORRENCIA',
+        autor: req.autor,
+        descricao: `${ocorrencia.id} aberta pela Cidade Preditiva: ${ocorrencia.tipoAlerta} em ${eq.serialNumber} (${eq.location.neighborhood})`,
+        depois: { ocorrenciaId: ocorrencia.id, status: ocorrencia.status, equipamentoId: eq.id, situacao: eq.status, previsaoId: body.previsaoId },
+      });
+    }
+    const ids = new Set(acoes.flatMap((a) => (a.kind === 'maintenance' ? a.equipmentIds : a.agentIds)));
+    const pick = (st: typeof before) => ({ equipamentos: st.equipment.filter((e) => ids.has(e.id)), agentes: st.agents.filter((a) => ids.has(a.id)) });
+    ctx.repo.registrarAuditoria({
+      acao: 'APLICAR_PREVISAO',
+      autor: req.autor,
+      descricao: `${body.previsaoId}: ${recomendacao}`.slice(0, 500),
+      antes: pick(before),
+      depois: { ...pick(after), assinaturas: acoes.map(actionSignature), ocorrencias: abertas.map((o) => o.ocorrencia.id) },
+    });
+    ctx.afterWrite();
+    return abertas.map(({ ocorrencia, criada }) => ({ id: ocorrencia.id, equipamentoId: ocorrencia.equipamentoId, tipoAlerta: ocorrencia.tipoAlerta, criada }));
+  });
+  return { ...ctx.estadoCompleto(), ocorrencias };
 });
 
 // -----------------------------------------------------------------------------

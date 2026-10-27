@@ -5,6 +5,7 @@ import { UiStateService } from '../../services/ui-state.service';
 
 const KIND_LABELS: Record<PredictionKind, string> = {
   traffic_collapse: 'Risco viário',
+  enforcement_gap: 'Fiscalização',
   batch_failure: 'Manutenção preditiva',
   staff_reinforcement: 'Efetivo',
   security_patrol: 'Segurança',
@@ -124,6 +125,11 @@ const KIND_LABELS: Record<PredictionKind, string> = {
             <strong class="text-fogo-sand">Colapso viário</strong> (alerta a partir de 55): até 45 pts por radares, câmeras e cancelas
             indisponíveis (15 cada) + até 30 pts pelo fluxo histórico no pico (relativo ao bairro de maior fluxo) + até 25 pts
             pelo déficit de agentes em relação ao necessário no pico (10 por agente).
+          </li>
+          <li>
+            <strong class="text-fogo-sand">Fiscalização comprometida</strong>: bairro com radar, câmera ou cancela fora de
+            operação, mas abaixo do limiar de colapso. O risco é o próprio escore de colapso, e a evidência mostra quantos
+            pontos faltam para o alerta de colapso.
           </li>
           <li>
             <strong class="text-fogo-sand">Falha em lote</strong>: mesmo fabricante e modelo com 2 ou mais unidades em falha,

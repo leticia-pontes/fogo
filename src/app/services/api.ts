@@ -7,6 +7,8 @@ export const API_BASE = '/api';
 /** Estado completo devolvido pelo servidor após leituras e ações. */
 export interface ServerState extends CityState {
   scenarioSnapshot: ScenarioSnapshot | null;
+  /** Assinaturas das recomendações da Cidade Preditiva já aplicadas (gravadas na auditoria). */
+  acoesAplicadas?: string[];
 }
 
 export class ApiError extends Error {

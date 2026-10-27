@@ -222,6 +222,12 @@ export class Repositorio {
       );
   }
 
+  /** Assinaturas das ações já aplicadas pela Cidade Preditiva (registradas em APLICAR_PREVISAO). */
+  listarAcoesPrevisaoAplicadas(): string[] {
+    const rows = this.db.prepare("SELECT depois FROM auditoria WHERE acao = 'APLICAR_PREVISAO' ORDER BY id").all() as { depois: string | null }[];
+    return [...new Set(rows.flatMap((r) => (JSON.parse(r.depois ?? '{}') as { assinaturas?: string[] }).assinaturas ?? []))];
+  }
+
   listarAuditoria(limit = 50): AuditEntry[] {
     return (this.db.prepare('SELECT * FROM auditoria ORDER BY id DESC LIMIT ?').all(limit) as Record<string, string | number | null>[]).map(toAuditEntry);
   }

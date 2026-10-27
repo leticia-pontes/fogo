@@ -2,6 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { NEIGHBORHOODS, NEIGHBORHOOD_HISTORY } from '../data/mock-data';
 import { HOOD_A, HOOD_B, makeAgent, makeEquipment } from '../../testing/fixtures';
 import { CityStateService } from './city-state.service';
+import { OccurrenceService } from './occurrence.service';
 import { PredictionService } from './prediction.service';
 
 describe('PredictionService', () => {
@@ -57,6 +58,19 @@ describe('PredictionService', () => {
     it('não é disparado por equipamentos que não são de fiscalização', () => {
       city.equipment.set([1, 2, 3].map(() => makeEquipment({ type: 'scooter', status: 'malfunction' })));
       expect(byKind('traffic_collapse')).toEqual([]);
+      expect(byKind('enforcement_gap')).toEqual([]);
+    });
+
+    it('abaixo do limiar, fiscalização fora gera alerta de atenção com OS imediata', () => {
+      const camera = makeEquipment({ type: 'camera', status: 'malfunction', neighborhood: HOOD_A });
+      city.equipment.set([camera, makeEquipment({ type: 'radar', neighborhood: HOOD_A })]);
+
+      expect(byKind('traffic_collapse')).toEqual([]);
+      const [gap] = byKind('enforcement_gap');
+      expect(gap.neighborhood).toBe(HOOD_A);
+      expect(gap.riskScore).toBeLessThan(55);
+      expect(gap.evidence[1]).toMatch(/faltam \d+ pts para o alerta de colapso/);
+      expect(gap.actions).toEqual([expect.objectContaining({ kind: 'maintenance', priority: 'immediate', equipmentIds: [camera.id] })]);
     });
   });
 
@@ -103,20 +117,39 @@ describe('PredictionService', () => {
   });
 
   describe('aplicar recomendação', () => {
-    it('altera o estado da cidade e marca a previsão como aplicada', () => {
+    it('altera o estado da cidade e marca a previsão como aplicada', async () => {
       const broken = makeEquipment({ type: 'radar', status: 'malfunction' });
       city.equipment.set([broken, makeEquipment({ type: 'radar', status: 'malfunction' }), makeEquipment({ type: 'camera', status: 'stolen' })]);
       city.agents.update((list) => list.filter((a) => a.neighborhood !== HOOD_A));
       const [collapse] = byKind('traffic_collapse');
 
       expect(predictor.isApplied(collapse)).toBe(false);
-      predictor.apply(collapse);
+      await predictor.apply(collapse);
 
       const after = city.equipment().find((e) => e.id === broken.id)!;
       expect(after.status).toBe('maintenance');
       expect(after.maintenance.priority).toBe('immediate');
       expect(predictor.isApplied(collapse)).toBe(true);
       expect(city.events()[0].kind).toBe('prediction_applied');
+    });
+
+    it('abre uma ocorrência por equipamento com OS imediata, com o tipo da situação de antes, sem duplicar', async () => {
+      const radar = makeEquipment({ type: 'radar', status: 'malfunction' });
+      const camera = makeEquipment({ type: 'camera', status: 'stolen' });
+      city.equipment.set([radar, makeEquipment({ type: 'radar', status: 'malfunction' }), camera]);
+      city.agents.update((list) => list.filter((a) => a.neighborhood !== HOOD_A));
+      const occ = TestBed.inject(OccurrenceService);
+      const [collapse] = byKind('traffic_collapse');
+
+      await predictor.apply(collapse);
+      const abertas = occ.list();
+      expect(abertas).toHaveLength(3);
+      expect(abertas.find((o) => o.equipamentoId === radar.id)!.tipoAlerta).toBe('falha');
+      expect(abertas.find((o) => o.equipamentoId === camera.id)!.tipoAlerta).toBe('furto');
+
+      // Aplicar de novo não faz nada (já aplicada), e a lista continua igual.
+      await predictor.apply(collapse);
+      expect(occ.list()).toHaveLength(3);
     });
   });
 });

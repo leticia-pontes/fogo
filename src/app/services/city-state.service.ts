@@ -209,6 +209,7 @@ export class CityStateService {
     this.agents.set(state.agents);
     this.peakSurge.set(state.peakSurge);
     this.scenarioSnapshot.set(state.scenarioSnapshot);
+    if (state.acoesAplicadas) this.appliedActions.set(new Set(state.acoesAplicadas));
     this.synced = {
       equipment: new Map(state.equipment.map((e) => [e.id, JSON.stringify(e)])),
       agents: new Map(state.agents.map((a) => [a.id, JSON.stringify(a)])),

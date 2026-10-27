@@ -1,16 +1,19 @@
 import { analisarLotes, emFalha } from '../core/batch';
-import { Injectable, computed, inject } from '@angular/core';
-import { NEIGHBORHOODS, NEIGHBORHOOD_HISTORY, daysFromToday } from '../data/mock-data';
+import { Injectable, Injector, computed, inject } from '@angular/core';
+import { NEIGHBORHOOD_HISTORY, daysFromToday } from '../data/mock-data';
 import { STATUS_LABELS } from '../models/equipment-schema';
-import { Agent, Equipment, MaintenancePriority } from '../models/fogo.models';
+import { Agent, Equipment } from '../models/fogo.models';
 import { RISK_HIGH, SURGE_FLOW_FACTOR, collapseStats } from '../core/analysis';
+import { PredictionAction, actionSignature, aplicarAcoesPrevisao } from '../core/prediction-actions';
+import { ServerState } from './api';
 import { CityStateService, daysUntil } from './city-state.service';
+import { OccurrenceService } from './occurrence.service';
+import { UiStateService } from './ui-state.service';
 
-export type PredictionKind = 'traffic_collapse' | 'batch_failure' | 'staff_reinforcement' | 'security_patrol';
+export type { PredictionAction } from '../core/prediction-actions';
+export { actionSignature } from '../core/prediction-actions';
 
-export type PredictionAction =
-  | { kind: 'move_agents'; neighborhood: string; agentIds: string[] }
-  | { kind: 'maintenance'; equipmentIds: string[]; priority: MaintenancePriority; nextDate: string };
+export type PredictionKind = 'traffic_collapse' | 'enforcement_gap' | 'batch_failure' | 'staff_reinforcement' | 'security_patrol';
 
 export interface Prediction {
   id: string;
@@ -32,12 +35,6 @@ export interface Prediction {
 const COLLAPSE_THRESHOLD = RISK_HIGH;
 const SECURITY_ROLES: Agent['role'][] = ['municipal_guard', 'military_police'];
 
-export function actionSignature(action: PredictionAction): string {
-  return action.kind === 'move_agents'
-    ? `move:${action.neighborhood}:${[...action.agentIds].sort().join(',')}`
-    : `mnt:${action.priority}:${[...action.equipmentIds].sort().join(',')}`;
-}
-
 const isFailing = emFalha;
 
 function onDuty(a: Agent): boolean {
@@ -47,6 +44,9 @@ function onDuty(a: Agent): boolean {
 @Injectable({ providedIn: 'root' })
 export class PredictionService {
   private readonly city = inject(CityStateService);
+  private readonly ui = inject(UiStateService);
+  /** OccurrenceService é obtido na hora (ocorrências → voz → previsões formariam um ciclo de injeção). */
+  private readonly injector = inject(Injector);
 
   readonly predictions = computed<Prediction[]>(() => {
     const equipment = this.city.equipment();
@@ -62,32 +62,42 @@ export class PredictionService {
     return prediction.actions.length > 0 && prediction.actions.every((a) => applied.has(actionSignature(a)));
   }
 
-  apply(prediction: Prediction): void {
-    for (const action of prediction.actions) {
-      if (action.kind === 'maintenance') {
-        this.city.patchEquipment(action.equipmentIds, (e) => ({
-          ...e,
-          // Equipe técnica despachada: falha passa a "em manutenção".
-          status: e.status === 'malfunction' ? 'maintenance' : e.status,
-          maintenance: { priority: action.priority, nextDate: action.nextDate },
-        }));
+  /**
+   * Aplica a recomendação. Online: POST /api/previsoes/aplicar grava tudo numa transação (estado,
+   * ocorrências das OS imediatas e auditoria). Offline: as mesmas funções puras, no navegador.
+   */
+  async apply(prediction: Prediction): Promise<void> {
+    if (!prediction.actions.length || this.isApplied(prediction)) return;
+    const antes = this.city.snapshot();
+    const occ = this.injector.get(OccurrenceService);
+    try {
+      if (this.city.mode() === 'online') {
+        const r = await this.city.serverAction<ServerState & { ocorrencias: { id: string; criada: boolean }[] }>('/previsoes/aplicar', {
+          previsaoId: prediction.id,
+          recomendacao: prediction.recommendation,
+          acoes: prediction.actions,
+        });
+        await occ.aposAplicarPrevisao(antes, prediction.actions);
+        this.avisar(prediction, r.ocorrencias.filter((o) => o.criada).length);
       } else {
-        const hood = NEIGHBORHOODS.find((n) => n.name === action.neighborhood);
-        this.city.patchAgents(action.agentIds, (a) =>
-          a.neighborhood === action.neighborhood
-            ? { ...a, status: 'active' }
-            : {
-                ...a,
-                neighborhood: action.neighborhood,
-                status: 'in_dispatch',
-                lat: (hood?.lat ?? a.lat) + (Math.random() - 0.5) * 0.006,
-                lng: (hood?.lng ?? a.lng) + (Math.random() - 0.5) * 0.006,
-              }
-        );
+        this.city.replaceState(aplicarAcoesPrevisao(antes, prediction.actions));
+        this.city.markApplied(prediction.actions.map(actionSignature));
+        const total = occ.list().length;
+        await occ.aposAplicarPrevisao(antes, prediction.actions);
+        this.avisar(prediction, occ.list().length - total);
       }
+    } catch (err) {
+      this.ui.notify(`Não foi possível aplicar a recomendação: ${(err as Error).message}`, 'bad');
     }
-    this.city.markApplied(prediction.actions.map(actionSignature));
+  }
+
+  private avisar(prediction: Prediction, ocorrencias: number): void {
     this.city.log(`Recomendação aplicada: ${prediction.recommendation}`, 'good', 'prediction_applied');
+    this.ui.notify(
+      ocorrencias ? `Recomendação aplicada: ${ocorrencias} ocorrência(s) aberta(s) na aba Ocorrências.` : 'Recomendação aplicada.',
+      'good',
+      4200
+    );
   }
 
   /**
@@ -171,6 +181,33 @@ export class PredictionService {
           actions,
         });
         continue;
+      }
+
+      // Abaixo do limiar de colapso, mas com fiscalização fora: alerta de atenção. Sem ele, bairros de pouco
+      // fluxo e efetivo completo só recebiam previsão quando quase toda a fiscalização caía.
+      if (down.length > 0) {
+        const faltam = COLLAPSE_THRESHOLD - s.collapseScore;
+        const series = down.map((e) => e.serialNumber).join(', ');
+        result.push({
+          id: `enforcement:${n.name}`,
+          kind: 'enforcement_gap',
+          title: 'Fiscalização Comprometida (atenção antes do colapso)',
+          subject: `${n.name} (${n.zone})`,
+          neighborhood: n.name,
+          horizon: `Próximo pico: ${history.peakWindow}`,
+          riskScore: s.collapseScore,
+          evidence: [
+            `${down.length} de ${s.enforcement.length} equipamentos de fiscalização indisponíveis: ${down
+              .map((e) => `${e.serialNumber} (${STATUS_LABELS[e.status].toLowerCase()})`)
+              .join(', ')}`,
+            `Escore de colapso viário ${s.collapseScore}: faltam ${faltam} pts para o alerta de colapso (${COLLAPSE_THRESHOLD})`,
+            `Fluxo histórico de ${history.peakFlowVehiclesPerHour.toLocaleString('pt-BR')} veículos/h em ${history.peakWindow}`,
+            effectiveEvidence,
+            ...surgeEvidence,
+          ],
+          recommendation: `Abrir OS imediata para ${series} antes do próximo pico, para o bairro não se aproximar do colapso.`,
+          actions: [{ kind: 'maintenance', equipmentIds: down.map((e) => e.id), priority: 'immediate', nextDate: daysFromToday(0) }],
+        });
       }
 
       if (deficit > 0) {
