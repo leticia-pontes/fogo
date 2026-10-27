@@ -8,12 +8,16 @@ import { AGENT_COVERAGE_RADIUS_M, COVERAGE_RADIUS_M } from './coverage-config';
 import { Indicators, calcularIndicadores } from './indicators';
 import { CityState } from './state';
 
-/** As três ações que o gestor pode simular (e depois aplicar). */
+/**
+ * As três ações que o gestor pode simular (e depois aplicar). EXECUTAR_ROTA_MANUTENCAO não é
+ * uma ação nova: é a composição de ANTECIPAR_MANUTENCAO (hoje) para cada parada da rota.
+ */
 export type Acao =
   | { tipo: 'FALHA_EQUIPAMENTO'; equipamentoId: string }
   | { tipo: 'DESATIVAR_EQUIPAMENTO'; equipamentoId: string }
   | { tipo: 'REALOCAR_AGENTES'; agentes: string[]; regiaoDestino: string }
-  | { tipo: 'ANTECIPAR_MANUTENCAO'; equipamentoId: string; novaData: string };
+  | { tipo: 'ANTECIPAR_MANUTENCAO'; equipamentoId: string; novaData: string }
+  | { tipo: 'EXECUTAR_ROTA_MANUTENCAO'; equipamentoIds: string[] };
 
 /** Fotografia dos indicadores usada no ANTES × DEPOIS. */
 export interface Panorama {
@@ -75,6 +79,19 @@ export function aplicarAcao(
 ): { state: CityState; descricao: string; afetados: { equipamentos: string[]; agentes: string[] } } {
   const hoje = opts.hoje ?? daysFromToday(0);
   const modo = opts.modo ?? 'aplicacao';
+
+  if (acao.tipo === 'EXECUTAR_ROTA_MANUTENCAO') {
+    if (!acao.equipamentoIds.length) throw new AcaoInvalida('Rota sem paradas');
+    let current = state;
+    for (const equipamentoId of acao.equipamentoIds) {
+      current = aplicarAcao(current, { tipo: 'ANTECIPAR_MANUTENCAO', equipamentoId, novaData: hoje }, { hoje, modo }).state;
+    }
+    return {
+      state: current,
+      descricao: `Executar rota de manutenção com ${acao.equipamentoIds.length} parada(s)`,
+      afetados: { equipamentos: [...acao.equipamentoIds], agentes: [] },
+    };
+  }
 
   if (acao.tipo === 'REALOCAR_AGENTES') {
     const hoodIdx = NEIGHBORHOODS.findIndex((n) => n.name === acao.regiaoDestino);
@@ -221,6 +238,13 @@ function diferencas(antes: Panorama, depois: Panorama): Diferenca[] {
 }
 
 function fatores(state: CityState, acao: Acao): string[] {
+  if (acao.tipo === 'EXECUTAR_ROTA_MANUTENCAO') {
+    return [
+      `Projeção com as ${acao.equipamentoIds.length} paradas atendidas hoje: equipamentos em falha ou manutenção voltam a operar`,
+      'Disponibilidade, manutenção vencida/imediata e cobertura de cada bairro visitado',
+      'Equipamentos de fiscalização reparados deixam de somar 15 pontos ao escore de colapso',
+    ];
+  }
   if (acao.tipo === 'REALOCAR_AGENTES') {
     return [
       'Efetivo em serviço comparado ao necessário no pico, na origem e no destino (déficit pesa 10 pontos por agente no risco)',
@@ -273,6 +297,7 @@ function avisos(
     const hoods = [...new Set(novosPontosCegos.map((c) => c.neighborhood))];
     list.push(`Surgem ${novosPontosCegos.length} novo(s) ponto(s) cego(s) em ${hoods.join(', ')}`);
   }
+  if (acao.tipo === 'EXECUTAR_ROTA_MANUTENCAO') list.push('Supõe todas as paradas atendidas hoje; veja o tempo estimado da rota');
   if (acao.tipo === 'ANTECIPAR_MANUTENCAO') {
     const e = before.equipment.find((x) => x.id === acao.equipamentoId)!;
     const changed = after.equipment.find((x) => x.id === acao.equipamentoId)!;

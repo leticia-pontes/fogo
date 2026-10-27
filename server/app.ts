@@ -5,11 +5,12 @@ import type { DatabaseSync } from 'node:sqlite';
 import { calcularRisco, calcularSaudePorRegiao } from '../src/app/core/analysis';
 import { calcularCobertura } from '../src/app/core/coverage';
 import { calcularAlertas, calcularIndicadores } from '../src/app/core/indicators';
+import { gerarRotaManutencao } from '../src/app/core/maintenance-route';
 import { recomendarAcoes } from '../src/app/core/recommendations';
 import { Acao, AcaoInvalida, aplicarAcao, simular } from '../src/app/core/simulation';
 import { SCENARIOS, ScenarioId, applyScenario, recordSnapshot, revertScenarios } from '../src/app/core/scenarios';
 import type { CityState } from '../src/app/core/state';
-import type { Agent, Equipment } from '../src/app/models/fogo.models';
+import type { Agent, Equipment, EquipmentType } from '../src/app/models/fogo.models';
 import { DEFAULT_DB_FILE, deleteDatabaseFile, openDatabase } from './db';
 import { Origem, Repositorio } from './repository';
 import { popularSeed } from './seed';
@@ -339,7 +340,7 @@ route('POST', '/api/reset', (req, ctx) => {
 
 function readAction(body: unknown): Acao {
   const acao = (body as { acao?: Acao })?.acao;
-  const tipos = ['FALHA_EQUIPAMENTO', 'DESATIVAR_EQUIPAMENTO', 'REALOCAR_AGENTES', 'ANTECIPAR_MANUTENCAO'];
+  const tipos = ['FALHA_EQUIPAMENTO', 'DESATIVAR_EQUIPAMENTO', 'REALOCAR_AGENTES', 'ANTECIPAR_MANUTENCAO', 'EXECUTAR_ROTA_MANUTENCAO'];
   if (!acao || !tipos.includes(acao.tipo)) throw new HttpError(400, `Ação inválida: use { acao: { tipo: ${tipos.join(' | ')} , ... } }`);
   return acao;
 }
@@ -361,9 +362,13 @@ route('POST', '/api/simulacao', (req, ctx) => {
 
 route('GET', '/api/recomendacoes', (req, ctx) => recomendarAcoes(ctx.repo.lerEstado(), { topN: Number(req.query.get('topN')) || 3 }));
 
-/** Aplica de verdade: grava o novo estado e registra na auditoria quem, quando e antes → depois. */
+/**
+ * Aplica de verdade: grava o novo estado e registra na auditoria quem, quando e antes → depois.
+ * `contexto: 'rota'` marca a conclusão de uma parada da rota de manutenção.
+ */
 route('POST', '/api/acoes/aplicar', (req, ctx) => {
   const acao = readAction(req.body);
+  const fromRoute = (req.body as { contexto?: string })?.contexto === 'rota';
   const simulacao = ctx.repo.transacao(() =>
     withActionErrors(() => {
       const before = ctx.repo.lerEstado();
@@ -375,9 +380,9 @@ route('POST', '/api/acoes/aplicar', (req, ctx) => {
         agentes: s.agents.filter((a) => afetados.agentes.includes(a.id)),
       });
       ctx.repo.registrarAuditoria({
-        acao: acao.tipo,
+        acao: fromRoute ? 'CONCLUIR_PARADA_ROTA' : acao.tipo,
         autor: req.autor,
-        descricao: `${descricao} · ${sim.diferencas.slice(0, 3).map((d) => d.texto).join('; ') || 'sem efeito nos indicadores'}`,
+        descricao: `${fromRoute ? `Parada da rota concluída: ${descricao.replace(/ para \d{2}\/\d{2}\/\d{4}$/, '')}` : descricao} · ${sim.diferencas.slice(0, 3).map((d) => d.texto).join('; ') || 'sem efeito nos indicadores'}`,
         antes: pick(before),
         depois: pick(after),
       });
@@ -386,6 +391,17 @@ route('POST', '/api/acoes/aplicar', (req, ctx) => {
     })
   );
   return { ...ctx.estadoCompleto(), simulacao };
+});
+
+/** Rota de manutenção: ?bairro=&tipo=&apenasCriticos=1&limite=10 */
+route('GET', '/api/rota-manutencao', (req, ctx) => {
+  const q = Object.fromEntries(req.query);
+  return gerarRotaManutencao(ctx.repo.lerEstado(), {
+    bairro: q['bairro'] || undefined,
+    tipo: (q['tipo'] || undefined) as EquipmentType | undefined,
+    apenasCriticos: q['apenasCriticos'] === '1' || q['apenasCriticos'] === 'true',
+    limite: Number(q['limite']) || undefined,
+  });
 });
 
 /** Cobertura por bairro e lista de pontos cegos (células sem cobertura). */

@@ -7,7 +7,8 @@ import { AGENT_STATUS_LABELS, ROLE_LABELS, STATUS_LABELS, TYPE_LABELS } from '..
 import { CityStateService } from '../../services/city-state.service';
 import { SimulationService } from '../../services/simulation.service';
 
-type ActionKind = Acao['tipo'];
+/** Ações do formulário (a rota completa é simulada pela aba Rota ou por uma recomendação). */
+type ActionKind = Exclude<Acao['tipo'], 'EXECUTAR_ROTA_MANUTENCAO'>;
 
 const ACTION_LABELS: Record<ActionKind, string> = {
   FALHA_EQUIPAMENTO: 'Falha de equipamento',
@@ -242,7 +243,8 @@ export class SimulatorPanelComponent {
     }
     const equipamentoId = this.equipmentId();
     if (!equipamentoId) return null;
-    return kind === 'ANTECIPAR_MANUTENCAO' ? { tipo: kind, equipamentoId, novaData: this.newDate() } : { tipo: kind, equipamentoId };
+    if (kind === 'ANTECIPAR_MANUTENCAO') return { tipo: kind, equipamentoId, novaData: this.newDate() };
+    return kind === 'FALHA_EQUIPAMENTO' ? { tipo: kind, equipamentoId } : { tipo: kind, equipamentoId };
   });
 
   readonly comparison = computed(() => {
@@ -280,7 +282,7 @@ export class SimulatorPanelComponent {
     // Ação vinda de fora (detalhe do equipamento, recomendação): preenche o formulário.
     effect(() => {
       const draft = this.sim.draft();
-      if (!draft) return;
+      if (!draft || draft.tipo === 'EXECUTAR_ROTA_MANUTENCAO') return;
       this.kind.set(draft.tipo);
       if (draft.tipo === 'REALOCAR_AGENTES') {
         this.agentIds.set(new Set(draft.agentes));
@@ -312,7 +314,7 @@ export class SimulatorPanelComponent {
   }
 
   async apply(acao: Acao, label?: string): Promise<void> {
-    const text = label ?? this.sim.result()?.descricao ?? ACTION_LABELS[acao.tipo];
+    const text = label ?? this.sim.result()?.descricao ?? acao.tipo;
     if (!confirm(`Aplicar de verdade: "${text}"?\nA mudança será gravada e registrada na auditoria.`)) return;
     await this.sim.apply(acao);
   }

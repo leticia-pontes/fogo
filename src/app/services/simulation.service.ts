@@ -21,7 +21,7 @@ export class SimulationService {
   private recTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** Aba do painel lateral da Central: alertas ou simulador. */
-  readonly panel = signal<'alerts' | 'simulator'>('alerts');
+  readonly panel = signal<'alerts' | 'simulator' | 'route'>('alerts');
   /** Ação em edição no formulário (pré-preenchida por "Simular falha" ou por uma recomendação). */
   readonly draft = signal<Acao | null>(null);
   readonly result = signal<Simulacao | null>(null);
@@ -70,13 +70,14 @@ export class SimulationService {
     }
   }
 
-  async apply(acao: Acao): Promise<boolean> {
+  /** `contexto: 'rota'` registra na auditoria como conclusão de parada da rota de manutenção. */
+  async apply(acao: Acao, contexto?: 'rota'): Promise<boolean> {
     this.busy.set(true);
     this.error.set(null);
     try {
       let descricao: string;
       if (this.city.mode() === 'online') {
-        const res = await this.city.serverAction<ServerState & { simulacao: Simulacao }>('/acoes/aplicar', { acao });
+        const res = await this.city.serverAction<ServerState & { simulacao: Simulacao }>('/acoes/aplicar', { acao, contexto });
         descricao = res.simulacao.descricao;
       } else {
         const applied = aplicarAcao(this.city.snapshot(), acao);

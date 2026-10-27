@@ -45,6 +45,9 @@ import { UiStateService } from '../../services/ui-state.service';
 import { MarkerSpec, MarkerSync, markerRank } from './marker-sync';
 import { SimulatorPanelComponent } from '../simulator/simulator-panel.component';
 import { SimulationService } from '../../services/simulation.service';
+import { RoutePanelComponent } from '../route/route-panel.component';
+import { RouteService } from '../../services/route.service';
+import { MaintenanceRoute } from '../../core/maintenance-route';
 import { calcularRisco, calcularSaudePorRegiao } from '../../core/analysis';
 import { calcularCobertura, coverageSources } from '../../core/coverage';
 import { Acao, Simulacao } from '../../core/simulation';
@@ -56,7 +59,7 @@ const SELECT_CLASS =
 @Component({
   selector: 'app-ops-center',
   standalone: true,
-  imports: [SimulatorPanelComponent],
+  imports: [SimulatorPanelComponent, RoutePanelComponent],
   template: `
     <div class="p-4 lg:p-5 space-y-4 max-w-[1800px] mx-auto">
       <!-- Filtros reativos -->
@@ -325,12 +328,19 @@ const SELECT_CLASS =
                 Alertas ({{ city.alerts().length }})
               </button>
               <button type="button" role="tab" [attr.aria-selected]="sim.panel() === 'simulator'" (click)="sim.panel.set('simulator')" class="flex-1 py-2.5 cursor-pointer" [class]="sim.panel() === 'simulator' ? tabOn : tabOff">
-                Simulador · melhores ações
+                Simulador · ações
+              </button>
+              <button type="button" role="tab" [attr.aria-selected]="sim.panel() === 'route'" (click)="sim.panel.set('route')" class="flex-1 py-2.5 cursor-pointer" [class]="sim.panel() === 'route' ? tabOn : tabOff">
+                Rota de manutenção
               </button>
             </div>
             @if (sim.panel() === 'simulator') {
               <div class="flex-1 overflow-y-auto">
                 <app-simulator-panel />
+              </div>
+            } @else if (sim.panel() === 'route') {
+              <div class="flex-1 overflow-y-auto">
+                <app-route-panel />
               </div>
             } @else {
               <div class="p-4 border-b border-fogo-border flex items-center justify-between">
@@ -452,6 +462,7 @@ export class OpsCenterComponent implements AfterViewInit, OnDestroy {
 
   readonly city = inject(CityStateService);
   readonly sim = inject(SimulationService);
+  private readonly routes = inject(RouteService);
   private readonly ui = inject(UiStateService);
   readonly showBlind = signal(false);
   readonly showRadii = signal(false);
@@ -500,6 +511,7 @@ export class OpsCenterComponent implements AfterViewInit, OnDestroy {
   private districtLayer: Leaflet.LayerGroup | null = null;
   /** Pontos cegos, raios de cobertura e células alteradas pela simulação. */
   private coverageLayer: Leaflet.LayerGroup | null = null;
+  private routeLayer: Leaflet.LayerGroup | null = null;
   private cityBounds: Leaflet.LatLngBounds | null = null;
   private readonly mapReady = signal(false);
   /** Agentes e o item selecionado: sempre visíveis, fora dos grupos. */
@@ -517,6 +529,14 @@ export class OpsCenterComponent implements AfterViewInit, OnDestroy {
       const selectedId = this.city.selection()?.id ?? null;
       const highlighted = this.sim.highlighted();
       if (this.mapReady()) this.render(equipment, agents, regions, selectedId, highlighted);
+    });
+
+    // Rota de manutenção: linha numerada da base até a última parada.
+    effect(() => {
+      const route = this.routes.route();
+      const done = this.routes.done();
+      const visible = this.sim.panel() === 'route';
+      if (this.mapReady()) this.renderRoute(visible ? route : null, done);
     });
 
     // Camadas de cobertura (ligáveis) e células que a simulação cria ou recupera.
@@ -586,6 +606,7 @@ export class OpsCenterComponent implements AfterViewInit, OnDestroy {
 
     this.districtLayer = L.layerGroup().addTo(this.map);
     this.coverageLayer = L.layerGroup().addTo(this.map);
+    this.routeLayer = L.layerGroup().addTo(this.map);
     const clusterGroup = L.markerClusterGroup({
       disableClusteringAtZoom: 16,
       maxClusterRadius: 50,
@@ -712,6 +733,37 @@ export class OpsCenterComponent implements AfterViewInit, OnDestroy {
   }
 
   /** Bairros e marcadores são atualizados de forma incremental (ver MarkerSync). */
+  private renderRoute(route: MaintenanceRoute | null, done: ReadonlySet<string>): void {
+    const L = this.L;
+    if (!L || !this.routeLayer || !this.map) return;
+    this.routeLayer.clearLayers();
+    if (!route || !route.paradas.length) return;
+    const path: [number, number][] = [[route.origem.lat, route.origem.lng], ...route.paradas.map((p) => [p.lat, p.lng] as [number, number])];
+    L.polyline(path, { color: '#ff7a3d', weight: 3, opacity: 0.85, dashArray: '8 6', interactive: false }).addTo(this.routeLayer);
+    L.marker([route.origem.lat, route.origem.lng], {
+      icon: L.divIcon({ className: '', iconSize: [30, 30], iconAnchor: [15, 15], html: '<div style="width:30px;height:30px;border-radius:6px;background:#ff7a3d;color:#101517;font:700 13px/30px sans-serif;text-align:center;">B</div>' }),
+      zIndexOffset: 2000,
+    })
+      .bindTooltip(route.origem.nome)
+      .addTo(this.routeLayer);
+    for (const p of route.paradas) {
+      const ok = done.has(p.equipamentoId);
+      const color = ok ? STATUS_COLORS.operational : p.criticidade === 'imediata' ? STATUS_COLORS.malfunction : p.criticidade === 'vencida' ? STATUS_COLORS.maintenance : '#4a90c2';
+      L.marker([p.lat, p.lng], {
+        icon: L.divIcon({
+          className: '',
+          iconSize: [22, 22],
+          iconAnchor: [11, 30],
+          html: `<div style="width:22px;height:22px;border-radius:9999px;background:${color};border:2px solid #101517;color:#101517;font:700 11px/18px sans-serif;text-align:center;">${ok ? '✓' : p.ordem}</div>`,
+        }),
+        zIndexOffset: 2000,
+      })
+        .bindTooltip(`${p.ordem}. ${escapeHtml(p.numeroSerie)} · ${escapeHtml(p.motivo)} · ${p.acumuladoKm.toLocaleString('pt-BR')} km`)
+        .addTo(this.routeLayer);
+    }
+    this.map.flyToBounds(L.latLngBounds(path), { padding: [40, 40], duration: 0.8 });
+  }
+
   private renderCoverage(
     coverage: ReturnType<typeof calcularCobertura>,
     showBlind: boolean,

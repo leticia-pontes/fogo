@@ -193,6 +193,18 @@ Raios (`core/coverage-config.ts`, valores de referência para a demonstração, 
 - **Desempenho** (Node 24, média de 10 execuções): 0,7 ms com a seed (54 equipamentos, 19 agentes); 2,3 ms com 2.054 equipamentos; 1,3 ms com 5.054. A grade é calculada uma vez e cada fonte passa por um pré-filtro de caixa antes do haversine. Já as recomendações simulam cada candidata por completo; por isso só as 12 manutenções mais urgentes (pré-filtro barato) são simuladas: 72 ms com a seed e 338 ms com 2.054 equipamentos (eram 4,8 s sem o pré-filtro).
 - `GET /api/cobertura` devolve o resultado atual.
 
+## Rota de manutenção
+
+Aba **Rota de manutenção** no painel lateral da Central: filtros por região, tipo, "só críticos" e máximo de paradas; botão **Gerar rota de manutenção**. O mapa mostra a base (B) e a linha tracejada numerada até a última parada; a lista ao lado traz situação, motivo, justificativa da posição e distância acumulada. **Concluir** marca a parada como atendida: o equipamento volta a "Operacional", a próxima preventiva vai para 90 dias depois e a auditoria registra `CONCLUIR_PARADA_ROTA`. **Simular o efeito da rota** abre o simulador com todas as paradas pendentes.
+
+`gerarRotaManutencao(estado, { origem?, limite?, apenasCriticos?, bairro?, tipo? })` (`core/maintenance-route.ts`):
+
+1. **Seleção**: imediata (mau funcionamento ou manutenção imediata), vencida (preventiva vencida ou em manutenção) e próxima (preventiva em até 7 dias; fica de fora com "só críticos"). Furtados ficam fora: exigem reposição, não manutenção.
+2. **Ordem**: a partir da base, escolhe a parada de menor **distância ÷ peso** (imediata 6, vencida 2,5, próxima 1), com distâncias haversine. Enquanto houver imediata pendente, só imediatas são elegíveis, então um item crítico nunca fica para o fim por estar longe.
+3. **Estimativa**: distância total = soma dos trechos (linha reta); tempo = distância ÷ 25 km/h + 20 min por parada. É uma estimativa declarada: o trajeto real pelas vias é mais longo.
+
+Nas recomendações, a rota com até 6 paradas críticas entra como candidata (`EXECUTAR_ROTA_MANUTENCAO`, que é a composição de `ANTECIPAR_MANUTENCAO` para cada parada). Rota: `GET /api/rota-manutencao?bairro=&tipo=&apenasCriticos=1&limite=10`.
+
 ## Testes
 
 `npm test` roda 40 testes unitários (Vitest, via `ng test`) sobre as regras de negócio:

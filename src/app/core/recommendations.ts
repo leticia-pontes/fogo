@@ -4,6 +4,7 @@ import { Equipment } from '../models/fogo.models';
 import { ENFORCEMENT_TYPES, calcularRisco, calcularSaudePorRegiao } from './analysis';
 import { COVERAGE_RADIUS_M } from './coverage-config';
 import { daysUntil } from './indicators';
+import { gerarRotaManutencao } from './maintenance-route';
 import { Acao, Simulacao, simular } from './simulation';
 import { CityState } from './state';
 
@@ -43,6 +44,8 @@ const MAX_PER_KIND = 2;
  * grandes (milhares de equipamentos em falha) simular todas levaria segundos.
  */
 const MAX_MAINTENANCE_CANDIDATES = 12;
+/** Paradas da rota sugerida como recomendação. */
+const ROUTE_STOPS = 6;
 
 export function ganhoDe(sim: Simulacao): number {
   let riskDrop = 0;
@@ -77,6 +80,17 @@ function candidates(state: CityState, hoje: string): { acao: Acao; titulo: strin
     .filter((x) => needsMaintenance(x, hoje))
     .sort((a, b) => urgency(b) - urgency(a) || a.id.localeCompare(b.id))
     .slice(0, MAX_MAINTENANCE_CANDIDATES);
+
+  // Rota com as paradas críticas: resolve vários problemas numa saída da equipe.
+  const route = gerarRotaManutencao(state, { hoje, apenasCriticos: true, limite: ROUTE_STOPS });
+  if (route.paradas.length >= 2) {
+    list.push({
+      acao: { tipo: 'EXECUTAR_ROTA_MANUTENCAO', equipamentoIds: route.paradas.map((p) => p.equipamentoId) },
+      titulo: `Executar rota de manutenção: ${route.paradas.length} paradas críticas (~${route.distanciaTotalKm.toLocaleString('pt-BR')} km, ~${route.tempoEstimadoMin} min)`,
+      confianca: 'media',
+      limitacoes: `Supõe todas as paradas atendidas hoje (estimativa de ${route.tempoEstimadoMin} min, distâncias em linha reta).`,
+    });
+  }
 
   for (const e of maintenance) {
     list.push({
@@ -181,6 +195,10 @@ export function recomendarAcoes(state: CityState, opts: { topN?: number; hoje?: 
 function justify(state: CityState, acao: Acao, effect: { hood: string; rb: number; ra: number; hb: number; ha: number }, recovered: number): string {
   const riskPart = effect.rb !== effect.ra ? `risco de ${effect.hood} ${effect.rb} → ${effect.ra}` : `saúde de ${effect.hood} ${effect.hb} → ${effect.ha}`;
   const blindPart = recovered ? ` e recupera ${recovered} célula(s) de cobertura` : '';
+  if (acao.tipo === 'EXECUTAR_ROTA_MANUTENCAO') {
+    const hoods = [...new Set(acao.equipamentoIds.map((id) => state.equipment.find((e) => e.id === id)!.location.neighborhood))];
+    return `Uma saída da equipe atende ${acao.equipamentoIds.length} equipamentos críticos em ${hoods.join(', ')}. Maior efeito: ${riskPart}${blindPart}.`;
+  }
   if (acao.tipo === 'REALOCAR_AGENTES') {
     const h = calcularSaudePorRegiao(state).find((x) => x.neighborhood === acao.regiaoDestino)!;
     return `${acao.regiaoDestino} tem ${h.agentsOnDuty} de ${h.agentsRequired} agentes necessários no pico. Reforço reduz o ${riskPart}${blindPart}.`;
