@@ -41,6 +41,10 @@ export const AVISO_COMPROVANTE = 'Documento interno de demonstração. Valores e
 /** Largura máxima do texto puro ("Copiar texto"), em colunas. */
 export const LARGURA_TEXTO = 42;
 
+/** Rótulos fixos, na ordem do cupom (o link do QR Code leva só os valores). */
+export const ROTULOS_CAMPOS = ['Equipamento', 'Local', 'Bairro', 'Detectado', 'Encerrado', 'Duração', 'Atendido por', 'Resolução'] as const;
+export const ROTULOS_CIDADE = ['Disponibilidade', 'Saúde do bairro', 'Risco do bairro'] as const;
+
 /** Rótulos do cupom (mais curtos que os do relatório, para caber numa linha). */
 export const RESOLUCAO_COMPROVANTE: Record<Resolucao, string> = {
   reposto: 'Unidade reposta',
@@ -82,22 +86,23 @@ export function montarComprovante(
   const resolucao = encerramento?.resolucao ?? 'outro';
   const dataHora = (iso: string) => formatarDataHora(iso, fusoHorario);
 
-  const campos: LinhaComprovante[] = [
-    { rotulo: 'Equipamento', valor: marca ? `${serie} · ${marca}` : serie },
-    { rotulo: 'Local', valor: local || 'Equipamento excluído do cadastro' },
-    { rotulo: 'Bairro', valor: abertura.bairro },
-    { rotulo: 'Detectado', valor: dataHora(detectado) },
-    { rotulo: 'Encerrado', valor: dataHora(ocorrencia.encerradaEm) },
-    { rotulo: 'Duração', valor: formatarDuracao(minutos) },
-    { rotulo: 'Atendido por', valor: despacho?.agenteNome ?? 'Sem agente despachado' },
-    { rotulo: 'Resolução', valor: RESOLUCAO_COMPROVANTE[resolucao] },
+  const valores = [
+    marca ? `${serie} · ${marca}` : serie,
+    local || 'Equipamento excluído do cadastro',
+    abertura.bairro,
+    dataHora(detectado),
+    dataHora(ocorrencia.encerradaEm),
+    formatarDuracao(minutos),
+    despacho?.agenteNome ?? 'Sem agente despachado',
+    RESOLUCAO_COMPROVANTE[resolucao],
   ];
+  const campos: LinhaComprovante[] = ROTULOS_CAMPOS.map((rotulo, i) => ({ rotulo, valor: valores[i] }));
 
   const cidade: LinhaCidade[] = [
-    { rotulo: 'Disponibilidade', antes: pct(abertura.indicadores.availabilityPct), agora: pct(atual.indicadores.availabilityPct) },
-    { rotulo: 'Saúde do bairro', antes: saude(abertura), agora: saude(atual) },
-    { rotulo: 'Risco do bairro', antes: risco(abertura), agora: risco(atual) },
-  ];
+    { antes: pct(abertura.indicadores.availabilityPct), agora: pct(atual.indicadores.availabilityPct) },
+    { antes: saude(abertura), agora: saude(atual) },
+    { antes: risco(abertura), agora: risco(atual) },
+  ].map((l, i) => ({ rotulo: ROTULOS_CIDADE[i], ...l }));
 
   const deltaSaude = abertura.saude && atual.saude ? Math.round(atual.saude.health) - Math.round(abertura.saude.health) : null;
   const prometheus = frasePrometheus(ocorrencia, resolucao, minutos, abertura.bairro, deltaSaude, atual.saude ? Math.round(atual.saude.health) : null);
@@ -106,7 +111,7 @@ export function montarComprovante(
   const subtitulo = `${TIPO_LABEL[ocorrencia.tipoAlerta]} · ${tipoEq}`.toLocaleUpperCase('pt-BR');
 
   const base = { id: ocorrencia.id, selo: 'ENCERRADA' as const, subtitulo, campos, cidade, prometheus, emitidoEm, aviso: AVISO_COMPROVANTE };
-  return { ...base, textoPlano: textoPlano(base) };
+  return { ...base, textoPlano: gerarTextoPlano(base) };
 }
 
 const TIPO_LABEL: Record<TipoAlerta, string> = { furto: 'Furto', falha: 'Falha', manutencao: 'Manutenção' };
@@ -175,7 +180,8 @@ function frasePrometheus(o: Ocorrencia, resolucao: Resolucao, minutos: number, b
   return variacoes[resolucao][n % 3].trim();
 }
 
-function textoPlano(c: Omit<Comprovante, 'textoPlano'>): string {
+/** Versão em texto puro ("Copiar texto", .txt), em até 42 colunas. */
+export function gerarTextoPlano(c: Omit<Comprovante, 'textoPlano'>): string {
   const sep = '-'.repeat(LARGURA_TEXTO);
   const linhas = [
     'F.O.G.O. · Nova Prometeia',

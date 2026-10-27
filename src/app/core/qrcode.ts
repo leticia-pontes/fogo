@@ -1,37 +1,53 @@
 /**
- * QR Code (ISO/IEC 18004) sem dependências: modo byte (UTF-8), correção de erros nível M, versões 1 a 6
- * (até 106 bytes, o bastante para um link). Função pura: mesmo texto, mesma matriz (true = módulo escuro).
+ * QR Code (ISO/IEC 18004) sem dependências: modo byte (UTF-8), correção de erros L ou M, versões 1 a 40.
+ * Função pura: mesmo texto, mesma matriz (true = módulo escuro). Tabelas e procedimentos seguem a norma.
  */
 
-/** Por versão (1–6), nível M: bytes de correção por bloco, número de blocos e bytes de dados por bloco. */
-const BLOCOS_M: Record<number, { ec: number; blocos: number; dados: number }> = {
-  1: { ec: 10, blocos: 1, dados: 16 },
-  2: { ec: 16, blocos: 1, dados: 28 },
-  3: { ec: 26, blocos: 1, dados: 44 },
-  4: { ec: 18, blocos: 2, dados: 32 },
-  5: { ec: 24, blocos: 2, dados: 43 },
-  6: { ec: 16, blocos: 4, dados: 27 },
+export type NivelCorrecao = 'L' | 'M';
+
+/** Bytes de correção por bloco e número de blocos, por versão (índice 0 não usado). */
+const EC_POR_BLOCO: Record<NivelCorrecao, number[]> = {
+  L: [-1, 7, 10, 15, 20, 26, 18, 20, 24, 30, 18, 20, 24, 26, 30, 22, 24, 28, 30, 28, 28, 28, 28, 30, 30, 26, 28, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30],
+  M: [-1, 10, 16, 26, 18, 24, 16, 18, 22, 22, 26, 30, 22, 22, 24, 24, 28, 28, 26, 26, 26, 26, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28],
 };
-/** Centro do único padrão de alinhamento (versões 2–6). */
-const ALINHAMENTO: Record<number, number> = { 2: 18, 3: 22, 4: 26, 5: 30, 6: 34 };
-/** Bits de nível de correção no formato: M = 00. */
-const NIVEL_M = 0;
+const BLOCOS: Record<NivelCorrecao, number[]> = {
+  L: [-1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 4, 4, 4, 4, 4, 6, 6, 6, 6, 7, 8, 8, 9, 9, 10, 12, 12, 12, 13, 14, 15, 16, 17, 18, 19, 19, 20, 21, 22, 24, 25],
+  M: [-1, 1, 1, 1, 2, 2, 4, 4, 4, 5, 5, 5, 8, 9, 9, 10, 10, 11, 13, 14, 16, 17, 17, 18, 20, 21, 23, 25, 26, 28, 29, 31, 33, 35, 37, 38, 40, 43, 45, 47, 49],
+};
+/** Bits do nível no formato: L = 01, M = 00. */
+const BITS_NIVEL: Record<NivelCorrecao, number> = { L: 1, M: 0 };
+
+/** Módulos disponíveis para dados (sem padrões fixos, formato e versão). */
+function modulosDeDados(v: number): number {
+  let r = (16 * v + 128) * v + 64;
+  if (v >= 2) {
+    const n = Math.floor(v / 7) + 2;
+    r -= (25 * n - 10) * n - 55;
+    if (v >= 7) r -= 36;
+  }
+  return r;
+}
+
+const bytesDeDados = (v: number, nivel: NivelCorrecao) => Math.floor(modulosDeDados(v) / 8) - EC_POR_BLOCO[nivel][v] * BLOCOS[nivel][v];
+/** Bits do cabeçalho do segmento byte: modo (4) + contagem (8 até a versão 9, 16 depois). */
+const bitsCabecalho = (v: number) => 4 + (v <= 9 ? 8 : 16);
 
 /** `mascara` (0–7) fixa a máscara; sem ela, vale a de menor penalidade. */
-export function gerarQrCode(texto: string, mascara?: number): boolean[][] {
+export function gerarQrCode(texto: string, { nivel = 'M', mascara }: { nivel?: NivelCorrecao; mascara?: number } = {}): boolean[][] {
   const bytes = Array.from(new TextEncoder().encode(texto));
-  const versao = [1, 2, 3, 4, 5, 6].find((v) => BLOCOS_M[v].blocos * BLOCOS_M[v].dados >= bytes.length + 2);
-  if (!versao) throw new Error(`Texto longo demais para o QR Code (${bytes.length} bytes; máximo 106)`);
-  const codewords = montarCodewords(bytes, versao);
+  let versao = 1;
+  while (versao <= 40 && bitsCabecalho(versao) + bytes.length * 8 > bytesDeDados(versao, nivel) * 8) versao++;
+  if (versao > 40) throw new Error(`Texto longo demais para o QR Code (${bytes.length} bytes; máximo ${bytesDeDados(40, nivel) - 3})`);
+  const codewords = montarCodewords(bytes, versao, nivel);
   const size = versao * 4 + 17;
 
   let melhor: boolean[][] | null = null;
   let menorPenalidade = Infinity;
-  for (const mask of mascara === undefined ? [0, 1, 2, 3, 4, 5, 6, 7] : [mascara]) {
+  for (const mask of mascara == null ? [0, 1, 2, 3, 4, 5, 6, 7] : [mascara]) {
     const { modulos, funcao } = matrizBase(versao, size);
     posicionarDados(modulos, funcao, codewords);
     aplicarMascara(modulos, funcao, mask);
-    desenharFormato(modulos, funcao, mask);
+    desenharFormato(modulos, funcao, mask, nivel);
     const p = penalidade(modulos);
     if (p < menorPenalidade) {
       menorPenalidade = p;
@@ -52,15 +68,14 @@ export function qrCodeSvgPath(matriz: boolean[][], margem = 4): { d: string; tam
 // Dados: segmento byte, preenchimento, Reed-Solomon e intercalação dos blocos
 // -----------------------------------------------------------------------------
 
-function montarCodewords(bytes: number[], versao: number): number[] {
-  const { ec, blocos, dados } = BLOCOS_M[versao];
-  const capacidade = blocos * dados;
+function montarCodewords(bytes: number[], versao: number, nivel: NivelCorrecao): number[] {
+  const capacidade = bytesDeDados(versao, nivel);
   const bits: number[] = [];
   const push = (valor: number, n: number) => {
     for (let i = n - 1; i >= 0; i--) bits.push((valor >>> i) & 1);
   };
   push(0b0100, 4); // modo byte
-  push(bytes.length, 8); // contagem (8 bits nas versões 1–9)
+  push(bytes.length, versao <= 9 ? 8 : 16);
   for (const b of bytes) push(b, 8);
   push(0, Math.min(4, capacidade * 8 - bits.length)); // terminador
   push(0, (8 - (bits.length % 8)) % 8);
@@ -68,11 +83,22 @@ function montarCodewords(bytes: number[], versao: number): number[] {
   for (let i = 0; i < bits.length; i += 8) data.push(bits.slice(i, i + 8).reduce((acc, b) => (acc << 1) | b, 0));
   for (let pad = 0xec; data.length < capacidade; pad ^= 0xec ^ 0x11) data.push(pad);
 
+  // Blocos curtos primeiro; os longos têm um byte de dados a mais. Intercala dados e depois correções.
+  const ec = EC_POR_BLOCO[nivel][versao];
+  const nBlocos = BLOCOS[nivel][versao];
+  const total = Math.floor(modulosDeDados(versao) / 8);
+  const curtos = nBlocos - (total % nBlocos);
+  const tamCurto = Math.floor(total / nBlocos) - ec;
   const gerador = polinomioGerador(ec);
-  const grupos = Array.from({ length: blocos }, (_, i) => data.slice(i * dados, (i + 1) * dados));
+  const grupos: number[][] = [];
+  for (let b = 0, k = 0; b < nBlocos; b++) {
+    const n = tamCurto + (b < curtos ? 0 : 1);
+    grupos.push(data.slice(k, k + n));
+    k += n;
+  }
   const correcoes = grupos.map((g) => restoReedSolomon(g, gerador));
   const out: number[] = [];
-  for (let i = 0; i < dados; i++) for (const g of grupos) out.push(g[i]);
+  for (let i = 0; i <= tamCurto; i++) for (const g of grupos) if (i < g.length) out.push(g[i]);
   for (let i = 0; i < ec; i++) for (const c of correcoes) out.push(c[i]);
   return out;
 }
@@ -136,13 +162,39 @@ function matrizBase(versao: number, size: number) {
       }
     }
   }
-  const a = ALINHAMENTO[versao];
-  if (a) {
-    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) set(a + dx, a + dy, Math.max(Math.abs(dx), Math.abs(dy)) !== 1);
+  const pos = posicoesAlinhamento(versao, size);
+  for (const [i, cy] of pos.entries()) {
+    for (const [j, cx] of pos.entries()) {
+      const canto = (i === 0 && j === 0) || (i === 0 && j === pos.length - 1) || (i === pos.length - 1 && j === 0);
+      if (canto) continue; // sobreporia um localizador
+      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) set(cx + dx, cy + dy, Math.max(Math.abs(dx), Math.abs(dy)) !== 1);
+    }
   }
   // Reserva a área do formato (preenchida depois, com a máscara escolhida).
-  desenharFormato(modulos, funcao, 0);
+  desenharFormato(modulos, funcao, 0, 'M');
+  if (versao >= 7) {
+    let rem = versao;
+    for (let i = 0; i < 12; i++) rem = (rem << 1) ^ ((rem >>> 11) * 0x1f25);
+    const bits = (versao << 12) | rem;
+    for (let i = 0; i < 18; i++) {
+      const escuro = ((bits >>> i) & 1) === 1;
+      const a = size - 11 + (i % 3);
+      const b = Math.floor(i / 3);
+      set(a, b, escuro);
+      set(b, a, escuro);
+    }
+  }
   return { modulos, funcao };
+}
+
+/** Centros dos padrões de alinhamento (mesma lista nos dois eixos). */
+function posicoesAlinhamento(versao: number, size: number): number[] {
+  if (versao === 1) return [];
+  const n = Math.floor(versao / 7) + 2;
+  const passo = versao === 32 ? 26 : Math.ceil((versao * 4 + 4) / (n * 2 - 2)) * 2;
+  const r = [6];
+  for (let p = size - 7; r.length < n; p -= passo) r.splice(1, 0, p);
+  return r;
 }
 
 function posicionarDados(modulos: boolean[][], funcao: boolean[][], codewords: number[]): void {
@@ -181,9 +233,9 @@ function aplicarMascara(modulos: boolean[][], funcao: boolean[][], mask: number)
   }
 }
 
-function desenharFormato(modulos: boolean[][], funcao: boolean[][], mask: number): void {
+function desenharFormato(modulos: boolean[][], funcao: boolean[][], mask: number, nivel: NivelCorrecao): void {
   const size = modulos.length;
-  const data = (NIVEL_M << 3) | mask;
+  const data = (BITS_NIVEL[nivel] << 3) | mask;
   let rem = data;
   for (let i = 0; i < 10; i++) rem = (rem << 1) ^ ((rem >>> 9) * 0x537);
   const bits = ((data << 10) | rem) ^ 0x5412;

@@ -71,15 +71,20 @@ describe('ComprovanteModalComponent', () => {
     expect(botao.textContent).toContain('Copiado!');
   });
 
-  it('mostra o QR Code com o link do celular; sem link (offline), só o aviso', () => {
+  it('"Abrir no celular" troca o cupom pelo QR Code; sem link, o botão fica desabilitado', () => {
     const { fixture, el } = render();
-    expect(el.querySelector('.cm-qr-code')).toBeNull();
-    expect(el.textContent).toContain('disponível com o servidor conectado');
+    const botao = () => Array.from(el.querySelectorAll('button')).find((b) => /Abrir no celular|Ver cupom/.test(b.textContent ?? ''))!;
+    expect(botao().disabled).toBe(true);
     fixture.componentInstance.link.set('http://192.168.0.10:3000/api/comprovantes/OC-0042');
+    fixture.detectChanges();
+    expect(botao().disabled).toBe(false);
+    botao().click();
     fixture.detectChanges();
     const qr = el.querySelector('.cm-qr-code')!;
     expect(qr.getAttribute('href')).toBe('http://192.168.0.10:3000/api/comprovantes/OC-0042');
     expect(qr.querySelector('path')!.getAttribute('d')).toMatch(/^M4 4h1v1h-1z/);
+    expect(el.querySelector('app-comprovante-ticket')!.classList).toContain('cm-oculto');
+    expect(botao().textContent).toContain('Ver cupom');
   });
 
   it('ESC fecha o modal', () => {

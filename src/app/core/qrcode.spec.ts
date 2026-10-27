@@ -1,6 +1,6 @@
 import { gerarQrCode, qrCodeSvgPath } from './qrcode';
 
-// A leitura de verdade foi conferida com o decodificador ZXing (8 textos × 8 máscaras, versões 1–6, UTF-8).
+// A leitura de verdade foi conferida com o decodificador ZXing (versões 1 a 40, níveis L e M, todas as máscaras, UTF-8).
 // Aqui ficam as garantias estruturais da norma.
 describe('QR Code', () => {
   const link = 'http://192.168.0.10:3000/api/comprovantes/OC-0042';
@@ -8,8 +8,11 @@ describe('QR Code', () => {
   it('escolhe a menor versão que cabe (tamanho = 4 × versão + 17)', () => {
     expect(gerarQrCode('A')).toHaveLength(21);
     expect(gerarQrCode(link)).toHaveLength(33); // 50 bytes → versão 4
-    expect(gerarQrCode('x'.repeat(106))).toHaveLength(41);
-    expect(() => gerarQrCode('x'.repeat(107))).toThrow(/longo demais/);
+    expect(gerarQrCode('x'.repeat(106))).toHaveLength(41); // limite da versão 6-M
+    expect(gerarQrCode('x'.repeat(107))).toHaveLength(45);
+    expect(gerarQrCode('x'.repeat(2331))).toHaveLength(177); // versão 40-M
+    expect(() => gerarQrCode('x'.repeat(2332))).toThrow(/longo demais/);
+    expect(gerarQrCode('x'.repeat(2332), { nivel: 'L' })).toHaveLength(161); // L cabe mais: versão 36
   });
 
   it('tem os três localizadores, o padrão de sincronismo e o módulo escuro fixo', () => {
@@ -24,8 +27,18 @@ describe('QR Code', () => {
 
   it('é determinístico; a máscara fixa muda só a área de dados', () => {
     expect(gerarQrCode(link)).toEqual(gerarQrCode(link));
-    expect(gerarQrCode(link, 0)).not.toEqual(gerarQrCode(link, 1));
-    expect(gerarQrCode(link, 0).slice(0, 7).map((l) => l.slice(0, 7))).toEqual(gerarQrCode(link, 1).slice(0, 7).map((l) => l.slice(0, 7)));
+    expect(gerarQrCode(link, { mascara: 0 })).not.toEqual(gerarQrCode(link, { mascara: 1 }));
+    const canto = (m: boolean[][]) => m.slice(0, 7).map((l) => l.slice(0, 7));
+    expect(canto(gerarQrCode(link, { mascara: 0 }))).toEqual(canto(gerarQrCode(link, { mascara: 1 })));
+  });
+
+  it('a partir da versão 7 grava a informação de versão nos dois cantos', () => {
+    const m = gerarQrCode('x'.repeat(150)); // versão 8 (49×49)
+    const n = m.length;
+    const blocoA = [0, 1, 2, 3, 4, 5].map((y) => [0, 1, 2].map((d) => m[y][n - 11 + d]));
+    const blocoB = [0, 1, 2, 3, 4, 5].map((x) => [0, 1, 2].map((d) => m[n - 11 + d][x]));
+    expect(blocoA).toEqual(blocoB);
+    expect(blocoA.flat().some(Boolean)).toBe(true);
   });
 
   it('gera o caminho SVG com margem de 4 módulos', () => {

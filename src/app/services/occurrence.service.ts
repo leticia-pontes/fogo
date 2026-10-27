@@ -3,6 +3,7 @@ import { isPlatformBrowser } from '@angular/common';
 import { RESOLUCAO_LABELS, Resolucao, encerrarOcorrencia, gerarRelatorio } from '../core/closure';
 import { Despacho, ResultadoDespacho, bloqueioDespacho, despachar, sugerirDespacho } from '../core/dispatch';
 import { Comprovante, montarComprovante } from '../core/comprovante';
+import { linkDoComprovante } from '../core/comprovante-link';
 import { Dossie, EventoSituacao, investigarOcorrencia } from '../core/investigation';
 import { Ocorrencia, TIPO_ALERTA_LABELS, TipoAlerta, abrirOcorrencia } from '../core/occurrences';
 import { MANUAIS } from '../data/manuals-index';
@@ -254,16 +255,26 @@ export class OccurrenceService {
     try {
       const online = this.city.mode() === 'online';
       const path = `/ocorrencias/${encodeURIComponent(id)}/comprovante`;
-      const [comprovante, link] = online
-        ? await Promise.all([api<Comprovante>('GET', path), api<{ url: string }>('GET', `${path}/link`).catch(() => null)])
-        : [montarComprovante(this.find(id), this.city.snapshot(), new Date()), null];
-      this.receiptLink.set(link?.url ?? null);
+      const comprovante = online ? await api<Comprovante>('GET', path) : montarComprovante(this.find(id), this.city.snapshot(), new Date());
+      this.receiptLink.set(await this.linkParaCelular(comprovante, online, path));
       this.receipt.set(comprovante);
       this.voice.speak('Comprovante emitido.');
     } catch (err) {
       this.error.set((err as Error).message);
       this.ui.notify(`Não foi possível emitir o comprovante: ${(err as Error).message}`, 'bad');
     }
+  }
+
+  /**
+   * Link do QR Code. Painel aberto num endereço que o celular alcança (deploy publicado, IP da rede): o
+   * comprovante vai dentro do link, sem servidor. Em localhost: a página servida pela API no IP da rede
+   * local, se houver servidor; sem servidor, não há QR.
+   */
+  private async linkParaCelular(c: Comprovante, online: boolean, path: string): Promise<string | null> {
+    const local = ['localhost', '127.0.0.1', '[::1]', '::1'].includes(location.hostname);
+    if (!local) return linkDoComprovante(c, location.origin).catch(() => null);
+    if (!online) return null;
+    return (await api<{ url: string }>('GET', `${path}/link`).catch(() => null))?.url ?? null;
   }
 
   closeReceipt(): void {

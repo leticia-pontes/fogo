@@ -104,4 +104,5 @@ dialog::backdrop {
     print-color-adjust: exact;
   }
   .comprovante-print-root * { animation: none !important; }
+  html:has(body.pagina-comprovante), body.pagina-comprovante { background: #fff !important; }
 }
