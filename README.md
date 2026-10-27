@@ -187,7 +187,7 @@ alerta ──▶ abrir ──▶ investigar ──▶ despachar ──▶ encerr
 | --- | --- |
 | **API + SQLite com histórico e auditoria** | A Parte 3 fala em *"dados históricos"*: um painel que esquece tudo ao recarregar não tem histórico. Cada mudança vira evento, e cada decisão tem autor e rastro (quem, quando, antes → depois). |
 | **Swagger em `/api/docs`** | O FAQ aceita *"apenas uma API"* como entrega. Quem avalia testa tudo pelo navegador, sem Postman. |
-| **Cadastro clicando no mapa** | A Parte 1 pede coordenadas GPS, e digitar latitude à mão é o jeito mais fácil de errar. Clicar numa rua preenche via, bairro, CEP e coordenadas encaixadas no eixo da via. |
+| **Cadastro clicando no mapa** | A Parte 1 pede coordenadas GPS, e digitar latitude à mão é o jeito mais fácil de errar. Clicar numa rua oferece cadastrar ali um equipamento (via, bairro, CEP e coordenadas encaixadas no eixo da via) ou um agente (bairro e coordenadas do ponto). |
 | **Modo offline** | Se a API não subir (ou no deploy estático), o painel não vira uma tela branca: as mesmas regras rodam no navegador. |
 | **Desempenho com frota grande** | Uma cidade real tem milhares de dispositivos. O mapa atualiza só o que mudou e agrupa marcadores: com 2.000 equipamentos, cada ciclo de telemetria leva cerca de 39 ms de script, contra 216 ms de um redesenho completo. |
 | **Missão guiada de 3 passos** | Há muita coisa para descobrir; em três passos, quem nunca viu o sistema encontra cada parte. Quem já conhece pula. |
@@ -279,13 +279,15 @@ Nível: **ALTO** ≥ 55, **MÉDIO** ≥ 35, **BAIXO** abaixo. A região no mapa 
 
 | Previsão | Base de dados | Ação aplicada |
 | --- | --- | --- |
-| Colapso viário | radares, câmeras e cancelas indisponíveis + fluxo histórico no pico + déficit de agentes (escore ≥ 55) | ocorrência e equipe técnica para os equipamentos fora; convocação ou realocação de agentes |
+| Colapso viário | radares, câmeras e cancelas indisponíveis + fluxo histórico no pico + déficit de agentes (escore ≥ 55, mesmo com a fiscalização completa) | ocorrência e equipe técnica para os equipamentos fora; convocação ou realocação de agentes; pedido de reforço à escala para o que faltar |
 | Fiscalização comprometida | radar, câmera ou cancela fora de operação num bairro ainda abaixo do limiar de colapso; mostra quantos pontos faltam para ele | ocorrência e equipe técnica para os equipamentos fora |
-| Falha em lote | taxa de falha de um fabricante/modelo comparada ao restante da frota | ocorrência e equipe técnica para as unidades em falha; preventiva antecipada nas demais |
-| Reforço de efetivo | efetivo atual × necessário no pico + ocorrências por semana | convoca agentes de folga ou realoca excedentes |
-| Novos furtos | 2 ou mais furtos no mesmo bairro + Guarda/PM em serviço | convoca ou desloca viaturas da Guarda/PM |
+| Falha em lote | taxa de falha de um fabricante/modelo comparada ao restante da frota; lista cada unidade com problema e as que ainda operam | ocorrência e equipe técnica para as unidades em falha que não estão no card de um bairro (lá elas já têm ação); preventiva antecipada nas demais |
+| Reforço de efetivo | efetivo atual × necessário no pico + ocorrências por semana | convoca agentes de folga ou realoca excedentes; sem nenhum disponível, solicita o reforço à escala |
+| Novos furtos | 2 ou mais furtos no mesmo bairro + Guarda/PM em serviço | convoca ou desloca viaturas da Guarda/PM; solicita à escala o que faltar |
 
-**Aplicar recomendação** grava tudo numa transação (`POST /api/previsoes/aplicar`): a situação dos equipamentos e agentes, uma ocorrência por equipamento enviado à equipe técnica (sem duplicar as já abertas) e o registro `APLICAR_PREVISAO` na auditoria. A marca de "aplicada" vem dessa auditoria, então continua depois de recarregar a página. Acionar a equipe não conserta na hora: o equipamento fica "em manutenção", com prioridade imediata, e entra na **Rota de manutenção**, que é a fila de trabalho da equipe técnica. O card aplicado mostra o que ainda falta, e o risco baixa quando a parada é concluída.
+**Aplicar recomendação** grava tudo numa transação (`POST /api/previsoes/aplicar`): a situação dos equipamentos e agentes, uma ocorrência por equipamento enviado à equipe técnica (sem duplicar as já abertas) e o registro `APLICAR_PREVISAO` na auditoria. A marca de "aplicada" vem dessa auditoria, então continua depois de recarregar a página. Ela vale por equipamento e por agente: se outro equipamento cai depois, só ele fica pendente, e um item que voltou a falhar também volta a pendente. Acionar a equipe não conserta na hora: o equipamento fica "em manutenção", com prioridade imediata, e entra na **Rota de manutenção**, que é a fila de trabalho da equipe técnica. O card aplicado mostra o que ainda falta, e o risco baixa quando a parada é concluída.
+
+Quando não há agente para convocar nem excedente em outro bairro, a ação é **solicitar o reforço à escala**: o pedido fica no log e na auditoria, sem mexer no estado, e vale para o dia e a quantidade pedidos. Quando o reforço chega, **Cadastrar agente** no próprio card abre o cadastro já lotado no bairro, e a previsão se recalcula.
 
 Os pesos estão em `prediction.service.ts` e aparecem na própria tela, em "Como as previsões são calculadas".
 
