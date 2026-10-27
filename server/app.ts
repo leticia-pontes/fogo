@@ -13,6 +13,7 @@ import { recuperarTrechos } from '../src/app/core/manuals';
 import { JANELA_VIZINHANCA_H, investigarOcorrencia } from '../src/app/core/investigation';
 import { bloqueioDespacho, despachar, sugerirDespacho } from '../src/app/core/dispatch';
 import { Resolucao, encerrarOcorrencia, gerarRelatorio, validarEncerramento } from '../src/app/core/closure';
+import { OcorrenciaNaoEncerradaError, montarComprovante } from '../src/app/core/comprovante';
 import { MANUAIS } from '../src/app/data/manuals-index';
 import { Acao, AcaoInvalida, aplicarAcao, simular } from '../src/app/core/simulation';
 import { SCENARIOS, ScenarioId, applyScenario, recordSnapshot, revertScenarios } from '../src/app/core/scenarios';
@@ -590,6 +591,17 @@ route('GET', '/api/ocorrencias/:id/relatorio', (req, ctx) => {
   const ocorrencia = ctx.repo.obterOcorrencia(req.params['id']) ?? notFound();
   const markdown = gerarRelatorio(ocorrencia, ctx.repo.lerEstado(), ctx.repo.listarAuditoriaSobre(ocorrencia.id), new Date());
   return req.query.get('formato') === 'md' ? new Resposta(200, markdown, 'text/markdown; charset=utf-8') : { markdown };
+});
+
+/** Comprovante (cupom) da ocorrência encerrada; ainda aberta dá 409. */
+route('GET', '/api/ocorrencias/:id/comprovante', (req, ctx) => {
+  const ocorrencia = ctx.repo.obterOcorrencia(req.params['id']) ?? notFound();
+  try {
+    return montarComprovante(ocorrencia, ctx.repo.lerEstado(), new Date());
+  } catch (err) {
+    if (err instanceof OcorrenciaNaoEncerradaError) throw new HttpError(409, err.message);
+    throw err;
+  }
 });
 
 /** Busca nos manuais fictícios (BM25 + bônus por tipo e fabricante). */

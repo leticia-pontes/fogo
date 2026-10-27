@@ -274,6 +274,19 @@ describe('API + SQLite', () => {
       expect((await call('GET', `/ocorrencias/${oc.id}/relatorio`)).data.markdown.split('\n')[0]).toBe(md.split('\n')[0]);
     });
 
+    it('comprovante: 409 antes de encerrar, 200 depois, 404 se não existe', async () => {
+      const equipamentoId = await stolenId();
+      const { data: oc } = await call('POST', '/ocorrencias', { equipamentoId, tipoAlerta: 'furto' });
+      expect((await call('GET', `/ocorrencias/${oc.id}/comprovante`)).status).toBe(409);
+      await call('POST', `/ocorrencias/${oc.id}/encerrar`, { resolucao: 'consertado' });
+      const { status, data } = await call('GET', `/ocorrencias/${oc.id}/comprovante`);
+      expect(status).toBe(200);
+      expect(data).toMatchObject({ id: oc.id, selo: 'ENCERRADA' });
+      expect(data.campos.find((l: { rotulo: string }) => l.rotulo === 'Resolução').valor).toBe('Equipamento consertado');
+      expect(data.textoPlano).toContain(data.prometheus.split(' ')[0]);
+      expect((await call('GET', '/ocorrencias/OC-9999/comprovante')).status).toBe(404);
+    });
+
     it('busca nos manuais pela API', async () => {
       const { status, data } = await call('GET', '/manuais/busca?q=falha%20lote%20troca&tipo=camera&fabricante=Hikvision');
       expect(status).toBe(200);

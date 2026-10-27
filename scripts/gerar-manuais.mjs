@@ -14,6 +14,7 @@ const list = (s) => s.split(',').map((x) => x.trim()).filter(Boolean);
 
 /** Trechos de um arquivo Markdown com front-matter (`tipo`, `fabricante`). Sem front-matter, o arquivo é ignorado. */
 export function parseManual(fonte, markdown) {
+  markdown = markdown.replace(/\r\n?/g, '\n'); // checkout no Windows (core.autocrlf) traz CRLF
   const fm = /^---\n([\s\S]*?)\n---\n/.exec(markdown);
   if (!fm) return [];
   const meta = Object.fromEntries(fm[1].split('\n').map((l) => l.split(/:(.*)/s).map((x) => x.trim())).filter(([k]) => k));

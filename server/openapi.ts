@@ -452,6 +452,32 @@ export const OPENAPI = {
         },
       },
     },
+    '/api/ocorrencias/{id}/comprovante': {
+      get: {
+        tags: ['Ocorrências'],
+        summary: 'Comprovante (cupom) da ocorrência encerrada',
+        description: 'Campos do cupom, cidade na abertura × agora (snapshot × estado atual), frase da PROMETHEUS por template e `textoPlano` (até 42 colunas). Determinístico; valores estimados por regras.',
+        parameters: [idParam],
+        responses: {
+          200: ok('Comprovante', {
+            type: 'object',
+            properties: {
+              id: { type: 'string', example: 'OC-0042' },
+              selo: { type: 'string', enum: ['ENCERRADA'] },
+              subtitulo: { type: 'string', example: 'FURTO · CÂMERA DE MONITORAMENTO' },
+              campos: { type: 'array', items: { type: 'object', properties: { rotulo: { type: 'string' }, valor: { type: 'string' } } } },
+              cidade: { type: 'array', items: { type: 'object', properties: { rotulo: { type: 'string' }, antes: { type: 'string' }, agora: { type: 'string' } } } },
+              prometheus: { type: 'string' },
+              emitidoEm: { type: 'string', example: 'Emitido em 27/10/2026 às 15:19' },
+              aviso: { type: 'string' },
+              textoPlano: { type: 'string' },
+            },
+          }),
+          404: NAO_ENCONTRADO,
+          409: erro('Ocorrência ainda não encerrada'),
+        },
+      },
+    },
     '/api/manuais/busca': {
       get: {
         tags: ['Ocorrências'],
