@@ -9,6 +9,8 @@ import {
   daysFromToday,
 } from '../data/mock-data';
 import { stepAlongRoad } from '../data/city-map';
+import { ScenarioSnapshot } from '../core/scenarios';
+import { CityState } from '../core/state';
 import { MOBILE_TYPES, STATUS_LABELS, isUnavailable } from '../models/equipment-schema';
 import {
   Agent,
@@ -31,6 +33,8 @@ export const EMPTY_FILTERS: OpsFilters = { type: 'all', status: 'all', neighborh
 interface PersistedState {
   equipment: Equipment[];
   agents: Agent[];
+  peakSurge?: string | null;
+  scenarioSnapshot?: ScenarioSnapshot | null;
 }
 
 export type Selection = { kind: 'equipment' | 'agent'; id: string } | null;
@@ -56,6 +60,8 @@ export class CityStateService {
   readonly selection = signal<Selection>(null);
   /** Bairro em véspera de horário de pico (cenário de homologação): a previsão usa fluxo e efetivo ampliados. */
   readonly peakSurge = signal<string | null>(null);
+  /** Versão anterior dos itens tocados pelos cenários de crise ativos (null = nenhum cenário). */
+  readonly scenarioSnapshot = signal<ScenarioSnapshot | null>(null);
   readonly telemetryOn = signal(false);
   /** Assinaturas das ações preditivas já aplicadas (ver PredictionService). */
   readonly appliedActions = signal<ReadonlySet<string>>(new Set());
@@ -188,6 +194,8 @@ export class CityStateService {
     const saved = this.load();
     this.equipment.set(saved?.equipment ?? buildMockEquipment());
     this.agents.set(saved?.agents ?? buildMockAgents());
+    this.peakSurge.set(saved?.peakSurge ?? null);
+    this.scenarioSnapshot.set(saved?.scenarioSnapshot ?? null);
     if (this.stressCount) {
       const extra = buildStressEquipment(this.stressCount);
       this.equipment.update((list) => [...list, ...extra]);
@@ -195,7 +203,12 @@ export class CityStateService {
     }
 
     effect(() => {
-      const state: PersistedState = { equipment: this.equipment(), agents: this.agents() };
+      const state: PersistedState = {
+        equipment: this.equipment(),
+        agents: this.agents(),
+        peakSurge: this.peakSurge(),
+        scenarioSnapshot: this.scenarioSnapshot(),
+      };
       if (!this.isBrowser || this.stressCount) return;
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -271,6 +284,17 @@ export class CityStateService {
     this.agents.update((list) => list.map((a) => (set.has(a.id) ? fn(a) : a)));
   }
 
+  /** Estado atual para as funções puras de core/. */
+  snapshot(): CityState {
+    return { equipment: this.equipment(), agents: this.agents(), peakSurge: this.peakSurge() };
+  }
+
+  replaceState(state: CityState): void {
+    this.equipment.set(state.equipment);
+    this.agents.set(state.agents);
+    this.peakSurge.set(state.peakSurge);
+  }
+
   markApplied(signatures: string[]): void {
     this.appliedActions.update((set) => new Set([...set, ...signatures]));
   }
@@ -284,6 +308,7 @@ export class CityStateService {
     this.events.set([]);
     this.appliedActions.set(new Set());
     this.peakSurge.set(null);
+    this.scenarioSnapshot.set(null);
     this.log('Dados de exemplo restaurados', 'info', 'system');
   }
 
@@ -383,7 +408,7 @@ export class CityStateService {
       if (!raw) return null;
       const parsed = JSON.parse(raw) as Partial<PersistedState>;
       return Array.isArray(parsed.equipment) && Array.isArray(parsed.agents)
-        ? { equipment: parsed.equipment, agents: parsed.agents }
+        ? { equipment: parsed.equipment, agents: parsed.agents, peakSurge: parsed.peakSurge, scenarioSnapshot: parsed.scenarioSnapshot }
         : null;
     } catch {
       return null;

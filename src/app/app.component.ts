@@ -1,4 +1,4 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { LucideDynamicIcon } from '@lucide/angular';
 import { InventoryComponent } from './components/inventory/inventory.component';
 import { MissionDockComponent } from './components/mission-dock/mission-dock.component';
@@ -89,6 +89,11 @@ import { ActiveModuleTab, UiStateService } from './services/ui-state.service';
                       </button>
                     }
                     <div class="border-t border-fogo-border mt-1 pt-1 flex flex-col">
+                      @if (city.scenarioSnapshot()) {
+                        <button type="button" role="menuitem" (click)="revert()" class="w-full text-left p-2.5 rounded-lg hover:bg-fogo-bg text-sm font-semibold text-fogo-green cursor-pointer">
+                          ↶ Reverter cenário(s) ativo(s)
+                        </button>
+                      }
                       <button type="button" role="menuitem" (click)="restore()" class="w-full text-left p-2.5 rounded-lg hover:bg-fogo-bg text-sm cursor-pointer">
                         ↺ Restaurar Estado Inicial
                       </button>
@@ -106,6 +111,21 @@ import { ActiveModuleTab, UiStateService } from './services/ui-state.service';
             </div>
           </div>
         </div>
+        @if (city.scenarioSnapshot(); as snap) {
+          <div class="border-t border-fogo-red/60 bg-fogo-red/15" role="alert">
+            <div class="max-w-[1800px] mx-auto px-4 py-2 flex flex-wrap items-center justify-between gap-3 text-sm">
+              <p class="flex items-center gap-2">
+                <span class="w-2.5 h-2.5 rounded-full bg-fogo-red animate-pulse"></span>
+                <strong class="text-fogo-red uppercase tracking-wide text-[12px]">Cenário de crise ativo</strong>
+                <span>{{ scenarioTitles(snap.scenarios) }}</span>
+                <span class="text-fogo-muted">· {{ criticalAlerts() }} alerta(s) crítico(s) · {{ snap.equipment.length }} equipamento(s) e {{ snap.agents.length }} agente(s) afetados</span>
+              </p>
+              <button type="button" (click)="revert()" class="px-3 py-1.5 rounded-lg border border-fogo-green text-fogo-green text-[13px] font-semibold hover:bg-fogo-green/15 cursor-pointer">
+                ↶ Reverter cenário
+              </button>
+            </div>
+          </div>
+        }
       </header>
 
       <main class="flex-1">
@@ -181,6 +201,17 @@ export class AppComponent {
   runScenario(id: ScenarioId): void {
     this.scenarioMenu.set(false);
     this.scenarioService.run(id);
+  }
+
+  readonly criticalAlerts = computed(() => this.city.alerts().filter((a) => a.severity === 'critical').length);
+
+  scenarioTitles(ids: ScenarioId[]): string {
+    return [...new Set(ids)].map((id) => this.scenarios.find((s) => s.id === id)?.title ?? id).join(' + ');
+  }
+
+  revert(): void {
+    this.scenarioMenu.set(false);
+    this.scenarioService.revert();
   }
 
   restore(): void {
