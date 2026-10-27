@@ -248,6 +248,32 @@ describe('API + SQLite', () => {
       expect((await call('POST', `/ocorrencias/${oc.id}/despachar`, {})).status).toBe(400);
     });
 
+    it('encerra (equipamento volta, agente retorna), recusa o segundo encerramento e gera o relatório', async () => {
+      const equipamentoId = await stolenId();
+      const { data: oc } = await call('POST', '/ocorrencias', { equipamentoId, tipoAlerta: 'furto' });
+      await call('GET', `/ocorrencias/${oc.id}/dossie`);
+      const [top] = (await call('GET', `/ocorrencias/${oc.id}/despacho`)).data.sugestoes;
+      const before = (await call<Agent>('GET', `/agentes/${top.agenteId}`)).data;
+      await call('POST', `/ocorrencias/${oc.id}/despachar`, { agenteId: top.agenteId });
+
+      expect((await call('POST', `/ocorrencias/${oc.id}/encerrar`, { resolucao: 'quebrou' })).status).toBe(400);
+      const fechado = await call('POST', `/ocorrencias/${oc.id}/encerrar`, { resolucao: 'reposto', observacao: 'Reposta' });
+      expect(fechado.status).toBe(200);
+      expect(fechado.data.ocorrencia).toMatchObject({ status: 'encerrada', encerramento: { resolucao: 'reposto', agenteDevolvido: top.agenteId } });
+      expect((await call<Equipment>('GET', `/equipamentos/${equipamentoId}`)).data.status).toBe('operational');
+      expect((await call<Agent>('GET', `/agentes/${top.agenteId}`)).data).toEqual(before);
+      expect((await call('POST', `/ocorrencias/${oc.id}/encerrar`, { resolucao: 'reposto' })).status).toBe(409);
+
+      const rel = await fetch(`${base}/ocorrencias/${oc.id}/relatorio?formato=md`);
+      expect(rel.headers.get('content-type')).toContain('text/markdown');
+      const md = await rel.text();
+      expect(md).toContain(`# Relatório da ocorrência ${oc.id}`);
+      const ordem = ['ABRIR_OCORRENCIA', 'INVESTIGAR_OCORRENCIA', 'DESPACHAR_AGENTE', 'ENCERRAR_OCORRENCIA'].map((a) => md.indexOf(`**${a}**`));
+      expect(ordem.every((i) => i > 0)).toBe(true);
+      expect(ordem).toEqual([...ordem].sort((a, b) => a - b));
+      expect((await call('GET', `/ocorrencias/${oc.id}/relatorio`)).data.markdown.split('\n')[0]).toBe(md.split('\n')[0]);
+    });
+
     it('busca nos manuais pela API', async () => {
       const { status, data } = await call('GET', '/manuais/busca?q=falha%20lote%20troca&tipo=camera&fabricante=Hikvision');
       expect(status).toBe(200);

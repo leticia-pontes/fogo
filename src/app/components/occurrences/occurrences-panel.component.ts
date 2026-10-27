@@ -1,4 +1,5 @@
 import { Component, computed, inject, signal } from '@angular/core';
+import { Encerramento, RESOLUCAO_LABELS, RESOLUCOES, Resolucao } from '../../core/closure';
 import { Despacho, ROLE_LABELS_DESPACHO, ResultadoDespacho } from '../../core/dispatch';
 import { Dossie } from '../../core/investigation';
 import { Confianca } from '../../core/manuals';
@@ -193,6 +194,56 @@ const STATUS_STYLES: Record<StatusOcorrencia, string> = {
             <p class="text-xs text-fogo-muted">Encerrada sem despacho.</p>
           }
         </section>
+
+        <section class="space-y-2 border-t border-fogo-border pt-3" aria-label="Encerramento">
+          <h4 class="text-xs font-semibold uppercase tracking-wide text-fogo-ember">Encerramento</h4>
+          @if (encerramento(o); as enc) {
+            <p>
+              <strong>{{ resolucaoLabels[enc.resolucao] }}</strong> · {{ formatDateTime(o.encerradaEm!) }}
+              @if (enc.equipamento; as e) {
+                · equipamento {{ statusText(e.antes) }} → {{ statusText(e.depois) }}
+              }
+            </p>
+            @if (enc.observacao) {
+              <p class="text-xs text-fogo-muted">"{{ enc.observacao }}"</p>
+            }
+            @if (enc.agenteDevolvido) {
+              <p class="text-xs text-fogo-muted">Agente devolvido à posição de origem.</p>
+            }
+          } @else {
+            <label class="block space-y-1">
+              <span class="text-xs text-fogo-muted">Resolução</span>
+              <select #resSel [class]="field" (change)="resolucao.set($any(resSel.value))">
+                @for (r of resolucoes; track r) {
+                  <option [value]="r" [selected]="resolucao() === r">{{ resolucaoLabels[r] }}</option>
+                }
+              </select>
+            </label>
+            <label class="block space-y-1">
+              <span class="text-xs text-fogo-muted">Observação (opcional)</span>
+              <textarea #obs rows="2" [class]="field" placeholder="Ex.: câmera reposta com gabinete antifurto"></textarea>
+            </label>
+            <button type="button" class="btn-secondary w-full" [disabled]="occ.busy()" (click)="confirmClose(o.id, obs.value)">Encerrar ocorrência</button>
+            <p class="text-[11px] text-fogo-muted">
+              Reposto, consertado ou falso alarme devolvem o equipamento a "Operacional"; "outro" mantém a situação. O agente despachado volta à origem.
+            </p>
+          }
+        </section>
+
+        <section class="space-y-2 border-t border-fogo-border pt-3" aria-label="Relatório">
+          <div class="flex items-center justify-between gap-2">
+            <h4 class="text-xs font-semibold uppercase tracking-wide text-fogo-ember">Relatório</h4>
+            <button type="button" class="btn-secondary text-xs" (click)="occ.loadReport(o.id)">{{ report(o) ? 'Atualizar' : o.status === 'encerrada' ? 'Ver relatório' : 'Ver relatório parcial' }}</button>
+          </div>
+          @if (report(o); as md) {
+            <div class="grid grid-cols-3 gap-2">
+              <button type="button" class="btn text-xs" (click)="copy(md)">{{ copied() ? 'Copiado!' : 'Copiar' }}</button>
+              <button type="button" class="btn text-xs" (click)="download(o.id, md)">Exportar .md</button>
+              <button type="button" class="btn text-xs" (click)="print(o.id, md)">Imprimir / PDF</button>
+            </div>
+            <pre class="whitespace-pre-wrap text-[11px] leading-relaxed bg-fogo-bg border border-fogo-border rounded-lg p-2.5 max-h-80 overflow-y-auto font-mono">{{ md }}</pre>
+          }
+        </section>
       } @else {
       <div class="flex items-end gap-2">
         <label class="flex-1 space-y-1">
@@ -269,6 +320,59 @@ export class OccurrencesPanelComponent {
 
   readonly sim = inject(SimulationService);
   readonly roleLabels = ROLE_LABELS_DESPACHO;
+
+  readonly resolucoes = RESOLUCOES;
+  readonly resolucaoLabels = RESOLUCAO_LABELS;
+  readonly resolucao = signal<Resolucao>('consertado');
+  readonly copied = signal(false);
+
+  encerramento(o: Ocorrencia): Encerramento | null {
+    return (o.encerramento as Encerramento | null) ?? null;
+  }
+
+  report(o: Ocorrencia): string | null {
+    const r = this.occ.report();
+    return r?.ocorrenciaId === o.id ? r.markdown : null;
+  }
+
+  confirmClose(id: string, observacao: string): void {
+    const label = RESOLUCAO_LABELS[this.resolucao()];
+    if (confirm(`Encerrar ${id} como "${label}"? A mudança vai para a auditoria.`)) void this.occ.close(id, this.resolucao(), observacao);
+  }
+
+  async copy(md: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(md);
+      this.copied.set(true);
+      setTimeout(() => this.copied.set(false), 2000);
+    } catch {
+      this.copied.set(false);
+    }
+  }
+
+  download(id: string, md: string): void {
+    const url = URL.createObjectURL(new Blob([md], { type: 'text/markdown;charset=utf-8' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `relatorio-${id}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  /** Abre o relatório numa janela limpa e chama a impressão (o navegador oferece "Salvar como PDF"). */
+  print(id: string, md: string): void {
+    const w = window.open('', '_blank');
+    if (!w) return;
+    const esc = md.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    w.document.write(
+      `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Relatório ${id}</title>` +
+        '<style>body{font:13px/1.5 ui-monospace,monospace;margin:24px;color:#111}pre{white-space:pre-wrap}@media print{body{margin:0}}</style>' +
+        `</head><body><pre>${esc}</pre></body></html>`
+    );
+    w.document.close();
+    w.focus();
+    w.print();
+  }
 
   despacho(o: Ocorrencia): Despacho | null {
     return (o.despacho as Despacho | null) ?? null;

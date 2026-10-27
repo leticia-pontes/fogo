@@ -1,5 +1,6 @@
 import { Injectable, PLATFORM_ID, computed, effect, inject, signal, untracked } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
+import { RESOLUCAO_LABELS, Resolucao, encerrarOcorrencia, gerarRelatorio } from '../core/closure';
 import { Despacho, ResultadoDespacho, bloqueioDespacho, despachar, sugerirDespacho } from '../core/dispatch';
 import { Dossie, EventoSituacao, investigarOcorrencia } from '../core/investigation';
 import { Ocorrencia, TIPO_ALERTA_LABELS, TipoAlerta, abrirOcorrencia } from '../core/occurrences';
@@ -53,6 +54,9 @@ export class OccurrenceService {
       return { from: [a?.lat ?? eq.location.lat, a?.lng ?? eq.location.lng] as [number, number], to: [eq.location.lat, eq.location.lng] as [number, number], label: `${i + 1}. ${x.nome} · ~${x.etaMin} min`, chosen: false };
     });
   });
+
+  /** Relatório em tela (Markdown) da ocorrência selecionada. */
+  readonly report = signal<{ ocorrenciaId: string; markdown: string } | null>(null);
 
   /** Modo offline: mudanças de situação registradas no navegador (no online, vêm de eventos_situacao). */
   private localEvents: EventoSituacao[] = [];
@@ -207,6 +211,44 @@ export class OccurrenceService {
       this.ui.notify(`Não foi possível despachar: ${(err as Error).message}`, 'bad');
     } finally {
       this.busy.set(false);
+    }
+  }
+
+  /** Encerra: equipamento conforme a resolução e agente de volta à origem (online: POST /encerrar; offline: função pura). */
+  async close(id: string, resolucao: Resolucao, observacao: string): Promise<void> {
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      if (this.city.mode() === 'online') {
+        await this.city.serverAction<ServerState>(`/ocorrencias/${encodeURIComponent(id)}/encerrar`, { resolucao, observacao });
+        await this.refresh();
+      } else {
+        const { state, ocorrencia } = encerrarOcorrencia(this.city.snapshot(), this.find(id), { resolucao, observacao }, new Date());
+        this.city.replaceState(state);
+        this.saveLocal(this.list().map((o) => (o.id === id ? ocorrencia : o)));
+      }
+      this.dispatchSuggestions.set(null);
+      this.city.log(`${id} encerrada: ${RESOLUCAO_LABELS[resolucao].toLowerCase()}`, 'good', 'system');
+      this.ui.notify(`${id} encerrada. O relatório está pronto.`, 'good');
+      await this.loadReport(id);
+    } catch (err) {
+      this.error.set((err as Error).message);
+      this.ui.notify(`Não foi possível encerrar: ${(err as Error).message}`, 'bad');
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  async loadReport(id: string): Promise<void> {
+    this.error.set(null);
+    try {
+      const markdown =
+        this.city.mode() === 'online'
+          ? (await api<{ markdown: string }>('GET', `/ocorrencias/${encodeURIComponent(id)}/relatorio`)).markdown
+          : gerarRelatorio(this.find(id), this.city.snapshot(), [], new Date());
+      this.report.set({ ocorrenciaId: id, markdown });
+    } catch (err) {
+      this.error.set((err as Error).message);
     }
   }
 

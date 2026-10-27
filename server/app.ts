@@ -12,6 +12,7 @@ import { recomendarAcoes } from '../src/app/core/recommendations';
 import { recuperarTrechos } from '../src/app/core/manuals';
 import { JANELA_VIZINHANCA_H, investigarOcorrencia } from '../src/app/core/investigation';
 import { bloqueioDespacho, despachar, sugerirDespacho } from '../src/app/core/dispatch';
+import { Resolucao, encerrarOcorrencia, gerarRelatorio, validarEncerramento } from '../src/app/core/closure';
 import { MANUAIS } from '../src/app/data/manuals-index';
 import { Acao, AcaoInvalida, aplicarAcao, simular } from '../src/app/core/simulation';
 import { SCENARIOS, ScenarioId, applyScenario, recordSnapshot, revertScenarios } from '../src/app/core/scenarios';
@@ -81,7 +82,8 @@ type Handler = (req: Request, ctx: Contexto) => unknown;
 
 /** Resposta com status explícito (o padrão é 200, ou 201 nos POST de cadastro). */
 export class Resposta {
-  constructor(readonly status: number, readonly body: unknown) {}
+  /** Com `contentType`, o corpo (texto) vai como está, em vez de JSON. */
+  constructor(readonly status: number, readonly body: unknown, readonly contentType?: string) {}
 }
 
 const routes: { method: string; path: string; pattern: RegExp; keys: string[]; handler: Handler }[] = [];
@@ -557,6 +559,39 @@ route('POST', '/api/ocorrencias/:id/despachar', (req, ctx) => {
   return { ...ctx.estadoCompleto(), ocorrencia };
 });
 
+/** Encerra: ajusta o equipamento conforme a resolução, devolve o agente à origem e audita. Encerrar de novo dá 409. */
+route('POST', '/api/ocorrencias/:id/encerrar', (req, ctx) => {
+  const before = ctx.repo.obterOcorrencia(req.params['id']) ?? notFound();
+  const errors = validarEncerramento(req.body);
+  if (errors.length) throw new HttpError(400, 'Dados inválidos', errors);
+  if (before.status === 'encerrada') throw new HttpError(409, `${before.id} já está encerrada`);
+  const body = req.body as { resolucao: Resolucao; observacao?: string | null };
+  const ocorrencia = ctx.repo.transacao(() => {
+    const estado = ctx.repo.lerEstado();
+    const { state, ocorrencia: after } = encerrarOcorrencia(estado, before, body, new Date());
+    persistState(ctx, estado, state, 'acao');
+    ctx.repo.atualizarOcorrencia(after);
+    const eq = state.equipment.find((e) => e.id === after.equipamentoId);
+    ctx.repo.registrarAuditoria({
+      acao: 'ENCERRAR_OCORRENCIA',
+      autor: req.autor,
+      descricao: `${after.id} encerrada (${body.resolucao})${eq ? `: ${eq.serialNumber}` : ''}${after.encerramento && (after.encerramento as { agenteDevolvido: string | null }).agenteDevolvido ? '; agente devolvido à origem' : ''}`,
+      antes: { ocorrenciaId: before.id, status: before.status },
+      depois: { ocorrenciaId: after.id, status: after.status, encerramento: after.encerramento },
+    });
+    ctx.afterWrite();
+    return after;
+  });
+  return { ...ctx.estadoCompleto(), ocorrencia };
+});
+
+/** Relatório pós-ocorrência: ?formato=md devolve o Markdown puro; sem formato, { markdown }. */
+route('GET', '/api/ocorrencias/:id/relatorio', (req, ctx) => {
+  const ocorrencia = ctx.repo.obterOcorrencia(req.params['id']) ?? notFound();
+  const markdown = gerarRelatorio(ocorrencia, ctx.repo.lerEstado(), ctx.repo.listarAuditoriaSobre(ocorrencia.id), new Date());
+  return req.query.get('formato') === 'md' ? new Resposta(200, markdown, 'text/markdown; charset=utf-8') : { markdown };
+});
+
 /** Busca nos manuais fictícios (BM25 + bônus por tipo e fabricante). */
 route('GET', '/api/manuais/busca', (req) => {
   const q = req.query.get('q')?.trim();
@@ -635,6 +670,10 @@ export function createApp(dbFile = DEFAULT_DB_FILE): { server: Server; ctx: Cont
         const autor = String(req.headers['x-usuario'] ?? 'gestor');
         const body = method === 'GET' ? undefined : await readBody(req);
         const result = await r.handler({ method, path: url.pathname, query: url.searchParams, params, body, autor }, ctx);
+        if (result instanceof Resposta && result.contentType) {
+          res.writeHead(result.status, { 'content-type': result.contentType });
+          return void res.end(String(result.body));
+        }
         if (result instanceof Resposta) return send(res, result.status, result.body);
         return send(res, method === 'POST' && url.pathname.match(/^\/api\/(equipamentos|agentes)$/) ? 201 : 200, result ?? { ok: true });
       }

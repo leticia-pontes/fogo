@@ -1,4 +1,5 @@
 import { STATUS_OCORRENCIA, TIPOS_ALERTA } from '../src/app/core/occurrences';
+import { RESOLUCOES } from '../src/app/core/closure';
 import { EQUIPMENT_STATUSES, EQUIPMENT_TYPES } from '../src/app/models/equipment-schema';
 
 /** Especificação OpenAPI da API, servida em /api/openapi.json e exibida no Swagger UI em /api/docs. */
@@ -415,6 +416,39 @@ export const OPENAPI = {
           400: INVALIDO,
           404: erro('Ocorrência ou agente não encontrado'),
           409: erro('Ocorrência encerrada, já despachada, agente já em atendimento ou equipamento excluído'),
+        },
+      },
+    },
+    '/api/ocorrencias/{id}/encerrar': {
+      post: {
+        tags: ['Ocorrências'],
+        summary: 'Encerra a ocorrência',
+        description:
+          'Reposto, consertado ou falso alarme devolvem o equipamento a "operacional" (reposto/consertado iniciam novo ciclo de preventiva); "outro" mantém a situação. ' +
+          'O agente despachado volta à posição, bairro e situação de origem. Registra `ENCERRAR_OCORRENCIA` na auditoria.',
+        parameters: [idParam, { $ref: '#/components/parameters/usuario' }],
+        requestBody: body(
+          { type: 'object', required: ['resolucao'], properties: { resolucao: { type: 'string', enum: RESOLUCOES }, observacao: { type: 'string' } } },
+          { resolucao: 'reposto', observacao: 'Câmera reposta com gabinete antifurto' }
+        ),
+        responses: { 200: ok('Novo estado completo, com `ocorrencia`', ref('Estado')), 400: INVALIDO, 404: NAO_ENCONTRADO, 409: erro('Ocorrência já encerrada') },
+      },
+    },
+    '/api/ocorrencias/{id}/relatorio': {
+      get: {
+        tags: ['Ocorrências'],
+        summary: 'Relatório pós-ocorrência em Markdown',
+        description: 'Resumo, linha do tempo (auditoria), impacto na abertura × agora, ações e resultado, padrões e recomendações com as fontes dos manuais. Determinístico; vale também para ocorrência sem investigação ou sem despacho.',
+        parameters: [idParam, query('formato', '`md` devolve o Markdown puro (text/markdown); sem formato, JSON `{ markdown }`', { type: 'string', enum: ['md'] })],
+        responses: {
+          200: {
+            description: 'Relatório',
+            content: {
+              'application/json': { schema: { type: 'object', properties: { markdown: { type: 'string' } } } },
+              'text/markdown': { schema: { type: 'string' } },
+            },
+          },
+          404: NAO_ENCONTRADO,
         },
       },
     },
