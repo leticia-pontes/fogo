@@ -20,6 +20,8 @@ export interface Bulletin {
   geradoEm: string;
   /** true quando nada exige ação imediata (sem alerta crítico, risco ALTO ou saúde baixa). */
   sobControle: boolean;
+  /** Bairros que exigem atenção (mesmos dados do texto, para o painel exibir em lista). */
+  regioes: { bairro: string; saude: number; risco: number; nivel: RegionRisk['level']; motivo: string }[];
   secoes: BulletinSection[];
   texto: string;
   /** Números usados no texto (para conferência e testes). */
@@ -152,6 +154,7 @@ export function gerarBoletim(
     geradoEm: agora.toISOString(),
     sobControle,
     secoes,
+    regioes: attention.slice(0, 3).map(({ h, r, c }) => ({ bairro: h.neighborhood, saude: h.health, risco: r.risk, nivel: r.level, motivo: reasons(h, c) })),
     texto: secoes.map((s) => (s.titulo === 'Abertura' ? s.linhas.join(' ') : `${s.titulo}: ${s.linhas.join(' ')}`)).join('\n\n'),
     numeros: {
       disponibilidadePct: kpi.availabilityPct,
