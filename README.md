@@ -13,6 +13,7 @@ O F.O.G.O. é a central de operações de **Nova Prometeia**, uma cidade fictíc
 ## Sumário
 
 - [Como rodar](#como-rodar)
+- [Navegadores testados](#navegadores-testados)
 - [A ideia em uma linha](#a-ideia-em-uma-linha)
 - [Funcionalidades e por que cada uma existe](#funcionalidades-e-por-que-cada-uma-existe)
 - [Por que regras, e não modelos de IA](#por-que-regras-e-não-modelos-de-ia)
@@ -58,6 +59,28 @@ npm run gerar-manuais   # reindexa manuais/*.md (roda sozinho antes de start, bu
 - **Pacote de entrega:** `git archive -o fogo.zip HEAD` (sem `node_modules`, `dist`, `.angular`, `.env` e banco).
 
 </details>
+
+## Navegadores testados
+
+> [!IMPORTANT]
+> **Recomendado: Chrome** (computador e celular). É o único navegador testado em que todas as funcionalidades funcionam, inclusive o microfone do agente de voz. No **Brave**, o microfone não funciona (veja abaixo).
+
+| Sistema | Navegador | Painel e funcionalidades | Voz falada (boletim e respostas) | Microfone do agente de voz | QR Code pelo link publicado (Vercel) | QR Code pela rede local (`localhost`) |
+| --- | --- | :---: | :---: | :---: | :---: | :---: |
+| Windows | Chrome | ✅ | ✅ | ✅ | – | – |
+| Windows | Brave | ✅ | ✅ | ❌ ¹ | – | – |
+| Linux | Chrome | ✅ | ✅ | ✅ | – | – |
+| Linux | Brave | ✅ | ✅ | ❌ ¹ | – | – |
+| Android | Chrome | – | – | – | ✅ | ❌ ² |
+| Android | Brave | – | – | – | ✅ | ⚠️ ³ |
+
+**¹ Microfone no Brave (Windows e Linux):** o Brave oferece a interface de reconhecimento de voz, mas não o serviço que transcreve o áudio. Nos testes, toda tentativa terminou com a mensagem *"O reconhecimento de voz precisa de internet (o navegador transcreve o áudio num serviço online)"*, mesmo com a conexão funcionando. Por isso o sistema identifica o Brave, deixa o microfone desabilitado e explica o motivo no painel de voz. As perguntas podem ser **digitadas**, com a mesma resposta falada.
+
+**² QR Code pela rede local no Chrome do Android:** com o painel aberto em `localhost`, o QR aponta para o IP do computador na rede (ex.: `http://192.168.18.90:3000/…`). O Chrome do Android não abre esse endereço e mostra *"Não é possível acessar esse site"*, porque restringe o acesso a endereços da rede local. Pelo link publicado (`https://fogo-chi.vercel.app`), o mesmo QR abre normalmente.
+
+**³ QR Code pela rede local no Brave do Android:** abre, depois de o Brave pedir permissão para **acessar dispositivos próximos**; basta permitir.
+
+Para demonstrar o QR Code no celular, use a **versão publicada**, que funciona nos dois navegadores e em qualquer rede (inclusive 4G). Além dos testes manuais acima, a impressão em PDF, a página do comprovante no celular e a leitura do QR Code também foram verificadas de forma automatizada no **Microsoft Edge** (modo headless, Windows), com o QR lido por um decodificador independente (ZXing).
 
 ## A ideia em uma linha
 
@@ -402,7 +425,7 @@ O botão do **microfone**, no canto da tela, abre o painel de voz. Pergunte fala
 A voz usa a **Web Speech API** do navegador:
 
 - **Fala** (texto → voz): feita pelo próprio navegador, funciona offline.
-- **Escuta** (voz → texto): o navegador envia o áudio ao serviço dele (Google no Chrome, Microsoft no Edge). Precisa de internet, permissão de microfone e página em `localhost` ou HTTPS. Firefox não tem; no Brave costuma falhar.
+- **Escuta** (voz → texto): o navegador envia o áudio ao serviço dele (Google no Chrome, Microsoft no Edge). Precisa de internet, permissão de microfone e página em `localhost` ou HTTPS. Firefox não tem; o Brave tem a interface mas não o serviço, então o microfone aparece desabilitado nele (veja [Navegadores testados](#navegadores-testados)).
 
 Sem microfone, sem internet ou noutro navegador, **digite** a pergunta: a resposta sai igual.
 
@@ -410,7 +433,8 @@ Sem microfone, sem internet ou noutro navegador, **digite** a pergunta: a respos
 | --- | --- |
 | Botão do microfone desabilitado | Use Chrome ou Edge, ou digite |
 | "Permissão de microfone negada" | Cadeado da barra de endereço → Microfone → Permitir, e recarregue |
-| "Precisa de internet" | Conecte-se ou digite |
+| "O serviço de transcrição do navegador não respondeu" | Sem internet, ou navegador sem o serviço: use Chrome ou Edge, ou digite |
+| Microfone desabilitado no Brave | O Brave não oferece o serviço de transcrição: use Chrome ou digite |
 | Nada acontece pelo IP da rede (`http://192.168…`) | O microfone só funciona em `localhost` ou HTTPS |
 
 </details>
@@ -444,7 +468,7 @@ Sem microfone, sem internet ou noutro navegador, **digite** a pergunta: a respos
 - **Ocorrências:** uma por equipamento + tipo de alerta enquanto aberta; um despacho por ocorrência.
 - **Relatório e comprovante** comparam a cidade inteira na abertura e agora: a variação inclui tudo o que mudou no período, não só a ocorrência. O "atendido por" é o agente despachado.
 - **Comprovante no link:** é uma cópia do cupom no momento da emissão; quem tiver o link vê os dados (documento interno de demonstração, sem dados pessoais além do nome do agente).
-- **QR Code em `localhost`:** o link usa o IP da rede local; se o escolhido não for o certo (VPN, máquina virtual), defina `FOGO_URL_PUBLICA`. Alguns navegadores no celular restringem o acesso a IPs da rede local; pela versão publicada isso não acontece.
+- **QR Code em `localhost`:** o link usa o IP da rede local; se o escolhido não for o certo (VPN, máquina virtual), defina `FOGO_URL_PUBLICA`. O Chrome do Android não abre endereços da rede local, e o Brave pede permissão para acessar dispositivos próximos; pela versão publicada isso não acontece (veja [Navegadores testados](#navegadores-testados)).
 
 ## Uso de IA no desenvolvimento
 
