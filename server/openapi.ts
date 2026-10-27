@@ -478,6 +478,32 @@ export const OPENAPI = {
         },
       },
     },
+    '/api/ocorrencias/{id}/comprovante/link': {
+      get: {
+        tags: ['Ocorrências'],
+        summary: 'Link do comprovante para o celular (QR Code)',
+        description: 'URL da página do comprovante com o IP da máquina na rede local (ou `FOGO_URL_PUBLICA`), para o celular na mesma rede abrir.',
+        parameters: [idParam],
+        responses: {
+          200: ok('Link', { type: 'object', properties: { url: { type: 'string', example: 'http://192.168.0.10:3000/api/comprovantes/OC-0042' } } }),
+          404: NAO_ENCONTRADO,
+          409: erro('Ocorrência ainda não encerrada'),
+        },
+      },
+    },
+    '/api/comprovantes/{id}': {
+      get: {
+        tags: ['Ocorrências'],
+        summary: 'Página do comprovante (HTML para o celular)',
+        description: 'Cupom em HTML autônomo, com "Salvar PDF" (impressão do navegador) e "Baixar texto". `?formato=txt` devolve o texto puro como anexo.',
+        parameters: [idParam, query('formato', '`txt` baixa o texto puro', { type: 'string', enum: ['txt'] })],
+        responses: {
+          200: { description: 'Página ou texto', content: { 'text/html': { schema: { type: 'string' } }, 'text/plain': { schema: { type: 'string' } } } },
+          404: NAO_ENCONTRADO,
+          409: erro('Ocorrência ainda não encerrada'),
+        },
+      },
+    },
     '/api/manuais/busca': {
       get: {
         tags: ['Ocorrências'],

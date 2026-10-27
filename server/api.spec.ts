@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import type { Server } from 'node:http';
 import { buildMockAgents, buildMockEquipment } from '../src/app/data/mock-data';
 import type { Agent, Equipment } from '../src/app/models/fogo.models';
-import { createApp, listarRotas } from './app';
+import { createApp, listarRotas, urlNaRede } from './app';
 import { OPENAPI } from './openapi';
 
 describe('API + SQLite', () => {
@@ -285,6 +285,38 @@ describe('API + SQLite', () => {
       expect(data.campos.find((l: { rotulo: string }) => l.rotulo === 'Resolução').valor).toBe('Equipamento consertado');
       expect(data.textoPlano).toContain(data.prometheus.split(' ')[0]);
       expect((await call('GET', '/ocorrencias/OC-9999/comprovante')).status).toBe(404);
+    });
+
+    it('comprovante no celular: link na rede local, página HTML e texto para baixar', async () => {
+      const equipamentoId = await stolenId();
+      const { data: oc } = await call('POST', '/ocorrencias', { equipamentoId, tipoAlerta: 'furto' });
+      expect((await call('GET', `/ocorrencias/${oc.id}/comprovante/link`)).status).toBe(409);
+      expect((await fetch(`${base}/comprovantes/${oc.id}`)).status).toBe(409);
+      await call('POST', `/ocorrencias/${oc.id}/encerrar`, { resolucao: 'reposto' });
+
+      const { data: link } = await call('GET', `/ocorrencias/${oc.id}/comprovante/link`);
+      expect(link.url).toMatch(new RegExp(`^http://[^/]+:\\d+/api/comprovantes/${oc.id}$`));
+      const pagina = await fetch(`${base}/comprovantes/${oc.id}`);
+      expect(pagina.headers.get('content-type')).toContain('text/html');
+      const html = await pagina.text();
+      expect(html).toContain(`<span class="tk-id">${oc.id}</span>`);
+      expect(html).toContain('Salvar PDF');
+      const txt = await fetch(`${base}/comprovantes/${oc.id}?formato=txt`);
+      expect(txt.headers.get('content-disposition')).toContain(`comprovante-${oc.id}.txt`);
+      expect(await txt.text()).toContain('COMPROVANTE DE OCORRÊNCIA');
+      expect((await fetch(`${base}/comprovantes/OC-9999`)).status).toBe(404);
+    });
+
+    it('urlNaRede prefere o IP 192.168 e aceita FOGO_URL_PUBLICA', () => {
+      const nic = (address: string, internal = false) => ({ address, family: 'IPv4', internal }) as never;
+      expect(urlNaRede(3000, { lo: [nic('127.0.0.1', true)], wsl: [nic('172.20.0.1')], wifi: [nic('192.168.0.42')] })).toBe('http://192.168.0.42:3000');
+      expect(urlNaRede(3000, {})).toBe('http://localhost:3000');
+      process.env['FOGO_URL_PUBLICA'] = 'https://fogo.exemplo/';
+      try {
+        expect(urlNaRede(3000, {})).toBe('https://fogo.exemplo');
+      } finally {
+        delete process.env['FOGO_URL_PUBLICA'];
+      }
     });
 
     it('busca nos manuais pela API', async () => {

@@ -13,7 +13,9 @@ import { recuperarTrechos } from '../src/app/core/manuals';
 import { JANELA_VIZINHANCA_H, investigarOcorrencia } from '../src/app/core/investigation';
 import { bloqueioDespacho, despachar, sugerirDespacho } from '../src/app/core/dispatch';
 import { Resolucao, encerrarOcorrencia, gerarRelatorio, validarEncerramento } from '../src/app/core/closure';
-import { OcorrenciaNaoEncerradaError, montarComprovante } from '../src/app/core/comprovante';
+import { OcorrenciaNaoEncerradaError, montarComprovante, type Comprovante } from '../src/app/core/comprovante';
+import { renderComprovanteHtml } from '../src/app/core/comprovante-html';
+import { networkInterfaces } from 'node:os';
 import { MANUAIS } from '../src/app/data/manuals-index';
 import { Acao, AcaoInvalida, aplicarAcao, simular } from '../src/app/core/simulation';
 import { SCENARIOS, ScenarioId, applyScenario, recordSnapshot, revertScenarios } from '../src/app/core/scenarios';
@@ -77,6 +79,8 @@ export interface Request {
   body: unknown;
   /** Quem fez a requisição (cabeçalho x-usuario), para a auditoria. */
   autor: string;
+  /** Porta local em que a requisição chegou (para montar links para outros aparelhos da rede). */
+  porta: number;
 }
 
 type Handler = (req: Request, ctx: Contexto) => unknown;
@@ -84,7 +88,7 @@ type Handler = (req: Request, ctx: Contexto) => unknown;
 /** Resposta com status explícito (o padrão é 200, ou 201 nos POST de cadastro). */
 export class Resposta {
   /** Com `contentType`, o corpo (texto) vai como está, em vez de JSON. */
-  constructor(readonly status: number, readonly body: unknown, readonly contentType?: string) {}
+  constructor(readonly status: number, readonly body: unknown, readonly contentType?: string, readonly headers: Record<string, string> = {}) {}
 }
 
 const routes: { method: string; path: string; pattern: RegExp; keys: string[]; handler: Handler }[] = [];
@@ -594,7 +598,24 @@ route('GET', '/api/ocorrencias/:id/relatorio', (req, ctx) => {
 });
 
 /** Comprovante (cupom) da ocorrência encerrada; ainda aberta dá 409. */
-route('GET', '/api/ocorrencias/:id/comprovante', (req, ctx) => {
+route('GET', '/api/ocorrencias/:id/comprovante', (req, ctx) => comprovante(req, ctx));
+
+/** Link do comprovante para abrir no celular (QR Code): endereço da máquina na rede local, não localhost. */
+route('GET', '/api/ocorrencias/:id/comprovante/link', (req, ctx) => {
+  const { id } = comprovante(req, ctx);
+  return { url: `${urlNaRede(req.porta)}/api/comprovantes/${encodeURIComponent(id)}` };
+});
+
+/** Página do comprovante para o celular (HTML autônomo); ?formato=txt baixa o texto puro. */
+route('GET', '/api/comprovantes/:id', (req, ctx) => {
+  const c = comprovante(req, ctx);
+  if (req.query.get('formato') === 'txt') {
+    return new Resposta(200, c.textoPlano, 'text/plain; charset=utf-8', { 'content-disposition': `attachment; filename="comprovante-${c.id}.txt"` });
+  }
+  return new Resposta(200, renderComprovanteHtml(c, { linkTexto: `${encodeURIComponent(c.id)}?formato=txt` }), 'text/html; charset=utf-8');
+});
+
+function comprovante(req: Request, ctx: Contexto): Comprovante {
   const ocorrencia = ctx.repo.obterOcorrencia(req.params['id']) ?? notFound();
   try {
     return montarComprovante(ocorrencia, ctx.repo.lerEstado(), new Date());
@@ -602,7 +623,23 @@ route('GET', '/api/ocorrencias/:id/comprovante', (req, ctx) => {
     if (err instanceof OcorrenciaNaoEncerradaError) throw new HttpError(409, err.message);
     throw err;
   }
-});
+}
+
+/**
+ * Endereço da API visto por outro aparelho da mesma rede: FOGO_URL_PUBLICA, se definida; senão o IPv4 da
+ * rede local (192.168.x antes de 10.x e 172.x, que costumam ser adaptadores virtuais); sem rede, localhost.
+ */
+export function urlNaRede(porta: number, interfaces = networkInterfaces()): string {
+  const fixa = process.env['FOGO_URL_PUBLICA']?.replace(/\/$/, '');
+  if (fixa) return fixa;
+  const ips = Object.values(interfaces)
+    .flat()
+    .filter((i) => i && i.family === 'IPv4' && !i.internal)
+    .map((i) => i!.address);
+  const prioridade = (ip: string) => (ip.startsWith('192.168.') ? 0 : ip.startsWith('10.') ? 1 : ip.startsWith('172.') ? 2 : 3);
+  const ip = ips.sort((a, b) => prioridade(a) - prioridade(b))[0] ?? 'localhost';
+  return `http://${ip}:${porta}`;
+}
 
 /** Busca nos manuais fictícios (BM25 + bônus por tipo e fabricante). */
 route('GET', '/api/manuais/busca', (req) => {
@@ -681,9 +718,9 @@ export function createApp(dbFile = DEFAULT_DB_FILE): { server: Server; ctx: Cont
         const params = Object.fromEntries(r.keys.map((k, i) => [k, decodeURIComponent(match[i + 1])]));
         const autor = String(req.headers['x-usuario'] ?? 'gestor');
         const body = method === 'GET' ? undefined : await readBody(req);
-        const result = await r.handler({ method, path: url.pathname, query: url.searchParams, params, body, autor }, ctx);
+        const result = await r.handler({ method, path: url.pathname, query: url.searchParams, params, body, autor, porta: req.socket.localPort ?? 3000 }, ctx);
         if (result instanceof Resposta && result.contentType) {
-          res.writeHead(result.status, { 'content-type': result.contentType });
+          res.writeHead(result.status, { ...result.headers, 'content-type': result.contentType });
           return void res.end(String(result.body));
         }
         if (result instanceof Resposta) return send(res, result.status, result.body);

@@ -470,7 +470,7 @@ const SELECT_CLASS =
       </div>
     </div>
     @if (occ.receipt(); as comprovante) {
-      <app-comprovante-modal [comprovante]="comprovante" (fechar)="occ.receipt.set(null)" />
+      <app-comprovante-modal [comprovante]="comprovante" [linkCelular]="occ.receiptLink()" (fechar)="occ.closeReceipt()" />
     }
   `,
   styles: `

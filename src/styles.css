@@ -90,19 +90,18 @@ dialog::backdrop {
   white-space: nowrap;
 }
 
-/* Comprovante de ocorrência: na impressão só o cupom aparece (papel creme mantido, recortes brancos). */
+/* Comprovante de ocorrência: ao imprimir, o modal copia o cupom para .comprovante-print-root (filho direto do body)
+   e só ele aparece, numa página, com o papel creme preservado e os recortes brancos. */
+.comprovante-print-root { display: none; }
 @media print {
   @page { margin: 10mm; }
-  body:has(.comprovante-print) * { visibility: hidden !important; }
-  body:has(.comprovante-print) { background: #fff !important; }
-  .comprovante-print, .comprovante-print * { visibility: visible !important; }
-  .comprovante-print {
+  body.imprimindo-comprovante > :not(.comprovante-print-root) { display: none !important; }
+  body.imprimindo-comprovante { background: #fff !important; }
+  body.imprimindo-comprovante > .comprovante-print-root {
     --ticket-fundo: #fff;
-    position: fixed !important;
-    left: 0;
-    top: 0;
-    animation: none !important;
+    display: block;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
+  .comprovante-print-root * { animation: none !important; }
 }

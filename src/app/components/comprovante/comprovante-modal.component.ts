@@ -1,5 +1,6 @@
-import { AfterViewInit, Component, ElementRef, OnDestroy, input, output, signal, viewChild } from '@angular/core';
+import { AfterViewInit, Component, ElementRef, OnDestroy, computed, inject, input, output, signal, viewChild } from '@angular/core';
 import { Comprovante } from '../../core/comprovante';
+import { gerarQrCode, qrCodeSvgPath } from '../../core/qrcode';
 import { ComprovanteTicketComponent } from './comprovante-ticket.component';
 
 const FOCAVEIS = 'button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
@@ -27,11 +28,26 @@ const FOCAVEIS = 'button:not([disabled]), [href], input, select, textarea, [tabi
           <button type="button" class="cm-close" aria-label="Fechar comprovante" (click)="fechar.emit()">✕</button>
         </header>
         <div class="cm-body">
-          <app-comprovante-ticket class="cm-ticket comprovante-print" [comprovante]="comprovante()" />
+          <app-comprovante-ticket class="cm-ticket" [comprovante]="comprovante()" />
         </div>
         <footer class="cm-foot">
-          <button #primary type="button" class="cm-btn cm-primary" (click)="imprimir()">Imprimir ou salvar PDF</button>
-          <button type="button" class="cm-btn cm-secondary" (click)="copiar()" aria-live="polite">{{ copiado() ? 'Copiado!' : 'Copiar texto' }}</button>
+          <div class="cm-qr">
+            @if (qr(); as q) {
+              <a [href]="linkCelular()" target="_blank" rel="noopener" class="cm-qr-code" aria-label="QR Code: abrir o comprovante no celular">
+                <svg [attr.viewBox]="'0 0 ' + q.tamanho + ' ' + q.tamanho" width="112" height="112" shape-rendering="crispEdges" aria-hidden="true">
+                  <rect [attr.width]="q.tamanho" [attr.height]="q.tamanho" fill="#fff" />
+                  <path [attr.d]="q.d" fill="#000" />
+                </svg>
+              </a>
+              <p class="cm-qr-text">Aponte a câmera do celular para baixar o comprovante. O celular precisa estar na mesma rede Wi-Fi.</p>
+            } @else {
+              <p class="cm-qr-text">QR Code para o celular disponível com o servidor conectado.</p>
+            }
+          </div>
+          <div class="cm-actions">
+            <button #primary type="button" class="cm-btn cm-primary" (click)="imprimir()">Imprimir ou salvar PDF</button>
+            <button type="button" class="cm-btn cm-secondary" (click)="copiar()" aria-live="polite">{{ copiado() ? 'Copiado!' : 'Copiar texto' }}</button>
+          </div>
         </footer>
       </div>
     </div>
@@ -70,9 +86,14 @@ const FOCAVEIS = 'button:not([disabled]), [href], input, select, textarea, [tabi
       cursor: pointer;
     }
     .cm-close:hover, .cm-close:focus-visible { background: #15202c; }
-    .cm-body { overflow-y: auto; max-height: calc(90vh - 130px); padding: 8px 0 16px; display: flex; justify-content: center; }
+    .cm-body { overflow-y: auto; max-height: calc(90vh - 230px); padding: 8px 0 16px; display: flex; justify-content: center; }
     .cm-ticket { animation: cm-print 700ms ease-out both; }
-    .cm-foot { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 12px 20px 20px; border-top: 1px solid #223244; }
+    .cm-foot { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: center; padding: 14px 20px 18px; border-top: 1px solid #223244; }
+    .cm-qr { display: flex; align-items: center; gap: 12px; }
+    .cm-qr-code { flex-shrink: 0; display: block; line-height: 0; border-radius: 6px; overflow: hidden; }
+    .cm-qr-code:focus-visible { outline: 2px solid #ffb547; outline-offset: 2px; }
+    .cm-qr-text { margin: 0; font-size: 12px; line-height: 1.4; color: #9aa7b5; }
+    .cm-actions { display: grid; gap: 10px; }
     .cm-btn { min-height: 48px; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; }
     .cm-primary { background: #ffb547; color: #1b1203; border: 0; }
     .cm-primary:hover { background: #ffc46b; }
@@ -90,13 +111,25 @@ const FOCAVEIS = 'button:not([disabled]), [href], input, select, textarea, [tabi
 })
 export class ComprovanteModalComponent implements AfterViewInit, OnDestroy {
   readonly comprovante = input.required<Comprovante>();
+  /** Link da página do comprovante na rede local; sem ele (modo offline), não há QR Code. */
+  readonly linkCelular = input<string | null>(null);
   readonly fechar = output<void>();
+
+  readonly qr = computed(() => {
+    const link = this.linkCelular();
+    try {
+      return link ? qrCodeSvgPath(gerarQrCode(link)) : null;
+    } catch {
+      return null; // link longo demais para o QR (ex.: FOGO_URL_PUBLICA extensa): fica só a impressão
+    }
+  });
 
   readonly copiado = signal(false);
   private readonly dialog = viewChild.required<ElementRef<HTMLElement>>('dialog');
   private readonly primary = viewChild.required<ElementRef<HTMLButtonElement>>('primary');
   private readonly abridor = typeof document !== 'undefined' ? (document.activeElement as HTMLElement | null) : null;
   private copiadoTimer: ReturnType<typeof setTimeout> | undefined;
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
 
   ngAfterViewInit(): void {
     this.primary().nativeElement.focus();
@@ -132,7 +165,29 @@ export class ComprovanteModalComponent implements AfterViewInit, OnDestroy {
   }
 
   imprimir(): void {
+    this.prepararImpressao();
     window.print();
+  }
+
+  /**
+   * Copia o cupom para um contêiner filho direto do body: na impressão todo o resto vira display:none
+   * (uma página só, sem disputar especificidade com o layout do painel). Desfeito no afterprint.
+   */
+  prepararImpressao(): void {
+    document.querySelector('.comprovante-print-root')?.remove();
+    const ticket = this.host.nativeElement.querySelector('app-comprovante-ticket');
+    if (!ticket) return;
+    const root = document.createElement('div');
+    root.className = 'comprovante-print-root';
+    root.appendChild(ticket.cloneNode(true));
+    document.body.appendChild(root);
+    document.body.classList.add('imprimindo-comprovante');
+    const limpar = () => {
+      root.remove();
+      document.body.classList.remove('imprimindo-comprovante');
+      window.removeEventListener('afterprint', limpar);
+    };
+    window.addEventListener('afterprint', limpar);
   }
 
   async copiar(): Promise<void> {

@@ -63,6 +63,8 @@ export class OccurrenceService {
 
   /** Comprovante aberto no modal (null = fechado). */
   readonly receipt = signal<Comprovante | null>(null);
+  /** Link da página do comprovante na rede local (QR Code para o celular); null no modo offline. */
+  readonly receiptLink = signal<string | null>(null);
 
   /** Modo offline: mudanças de situação registradas no navegador (no online, vêm de eventos_situacao). */
   private localEvents: EventoSituacao[] = [];
@@ -250,16 +252,23 @@ export class OccurrenceService {
   async openReceipt(id: string): Promise<void> {
     this.error.set(null);
     try {
-      const comprovante =
-        this.city.mode() === 'online'
-          ? await api<Comprovante>('GET', `/ocorrencias/${encodeURIComponent(id)}/comprovante`)
-          : montarComprovante(this.find(id), this.city.snapshot(), new Date());
+      const online = this.city.mode() === 'online';
+      const path = `/ocorrencias/${encodeURIComponent(id)}/comprovante`;
+      const [comprovante, link] = online
+        ? await Promise.all([api<Comprovante>('GET', path), api<{ url: string }>('GET', `${path}/link`).catch(() => null)])
+        : [montarComprovante(this.find(id), this.city.snapshot(), new Date()), null];
+      this.receiptLink.set(link?.url ?? null);
       this.receipt.set(comprovante);
       this.voice.speak('Comprovante emitido.');
     } catch (err) {
       this.error.set((err as Error).message);
       this.ui.notify(`Não foi possível emitir o comprovante: ${(err as Error).message}`, 'bad');
     }
+  }
+
+  closeReceipt(): void {
+    this.receipt.set(null);
+    this.receiptLink.set(null);
   }
 
   async loadReport(id: string): Promise<void> {

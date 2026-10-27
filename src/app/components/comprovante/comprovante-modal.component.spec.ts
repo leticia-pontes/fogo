@@ -27,12 +27,13 @@ const COMPROVANTE: Comprovante = {
   imports: [ComprovanteModalComponent],
   template: `
     @if (aberto()) {
-      <app-comprovante-modal [comprovante]="comprovante" (fechar)="aberto.set(false)" />
+      <app-comprovante-modal [comprovante]="comprovante" [linkCelular]="link()" (fechar)="aberto.set(false)" />
     }
   `,
 })
 class HostComponent {
   readonly aberto = signal(true);
+  readonly link = signal<string | null>(null);
   readonly comprovante = COMPROVANTE;
 }
 
@@ -68,6 +69,17 @@ describe('ComprovanteModalComponent', () => {
     fixture.detectChanges();
     expect(writeText).toHaveBeenCalledWith(COMPROVANTE.textoPlano);
     expect(botao.textContent).toContain('Copiado!');
+  });
+
+  it('mostra o QR Code com o link do celular; sem link (offline), só o aviso', () => {
+    const { fixture, el } = render();
+    expect(el.querySelector('.cm-qr-code')).toBeNull();
+    expect(el.textContent).toContain('disponível com o servidor conectado');
+    fixture.componentInstance.link.set('http://192.168.0.10:3000/api/comprovantes/OC-0042');
+    fixture.detectChanges();
+    const qr = el.querySelector('.cm-qr-code')!;
+    expect(qr.getAttribute('href')).toBe('http://192.168.0.10:3000/api/comprovantes/OC-0042');
+    expect(qr.querySelector('path')!.getAttribute('d')).toMatch(/^M4 4h1v1h-1z/);
   });
 
   it('ESC fecha o modal', () => {
