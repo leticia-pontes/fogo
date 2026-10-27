@@ -15,7 +15,7 @@ O F.O.G.O. é a central de operações de **Nova Prometeia**, uma cidade fictíc
 - [Como rodar](#como-rodar)
 - [A ideia em uma linha](#a-ideia-em-uma-linha)
 - [Funcionalidades e por que cada uma existe](#funcionalidades-e-por-que-cada-uma-existe)
-- [Por que não IA generativa, RAG ou modelo treinado](#por-que-não-ia-generativa-rag-ou-modelo-treinado)
+- [Por que regras, e não modelos de IA](#por-que-regras-e-não-modelos-de-ia)
 - [Demonstração em 5 minutos](#demonstração-em-5-minutos)
 - [Como cada número é calculado](#como-cada-número-é-calculado)
 - [Arquitetura, banco e API](#arquitetura-banco-e-api)
@@ -141,19 +141,21 @@ alerta ──▶ abrir ──▶ investigar ──▶ despachar ──▶ encerr
 | **Missão guiada de 3 passos** | Há muita coisa para descobrir; em três passos, quem nunca viu o sistema encontra cada parte. Quem já conhece pula. |
 | **159 testes automatizados** | O desafio pede para *"demonstrar entendimento daquilo que a IA construiu"*. As fórmulas não dependem de confiança: dependem de teste. |
 
-## Por que não IA generativa, RAG ou modelo treinado
+## Por que regras, e não modelos de IA
 
-A pergunta é justa: o tema é uma "inteligência" urbana, e seria natural plugar um LLM, montar um RAG com os manuais ou treinar um modelo de previsão. Foram escolhidas **regras explicáveis e determinísticas**:
+A PROMETHEUS é apresentada como a inteligência da cidade, mas nenhuma das suas decisões passa por um modelo de linguagem ou por um modelo treinado. Trata-se de uma decisão de projeto: numa central de operações, uma recomendação vale tanto pelo acerto quanto pela possibilidade de entender por que ela foi feita.
 
-1. **Decisão pública precisa ser auditável.** Quando o sistema recomenda tirar um guarda de um bairro, alguém responde por isso. Cada número do F.O.G.O. vem de uma fórmula escrita neste README, cada recomendação cita o manual que a sustenta e a mesma entrada gera sempre a mesma saída. Um LLM pode dar respostas diferentes para a mesma pergunta e não consegue mostrar de onde tirou um número.
-2. **Não existem dados reais para treinar.** Um modelo de ML treinado com os dados sintéticos do projeto aprenderia apenas as regras usadas para gerá-los: seria um caminho mais caro e menos transparente para chegar à mesma heurística. O correto é começar com regras e trocar por modelos quando houver meses de telemetria real.
-3. **RAG para 41 trechos de manual é desproporcional.** A busca por palavras-chave (BM25) resolve bem uma base desse tamanho, sem servidor de embeddings nem banco vetorial. E a arquitetura já é a de um RAG: a etapa de **recuperação** existe (`recuperarTrechos`) e as fontes já são citadas. Só a **geração** é feita por regras em vez de um LLM, e trocá-la é uma mudança localizada (`decidirComManual`).
-4. **Números inventados no meio de uma crise são inaceitáveis.** O boletim e o relatório usam templates preenchidos com os números reais. Assim, o texto não depende de chave nem de rede, e o mesmo estado gera sempre o mesmo texto.
-5. **Roda em qualquer máquina, de primeira.** Sem chave de API, sem custo por chamada, sem GPU, sem rede, e os dados da cidade não saem do computador. O FAQ do desafio lembra que o projeto que *"roda de primeira"* é avaliado com *"um sorriso no rosto"*.
+**Confiança vem de explicação.** O gestor que remaneja uma viatura ou aciona a concessionária responde por essa decisão. Por isso, cada indicador sai de uma fórmula documentada, cada recomendação mostra os dados que a motivaram e a fonte que a sustenta, e o mesmo estado da cidade produz sempre a mesma resposta. Um modelo generativo redige bem, mas pode variar entre duas execuções e não mostra de onde veio cada número, um risco difícil de aceitar no meio de uma crise.
 
-O próprio enunciado avisa que *"não será sobre quem usou mais tecnologia, mais IA ou mais linhas de código"*. O valor está em transformar dados em decisão, e isso as regras fazem com explicação completa.
+**Um modelo é tão bom quanto os dados que o treinaram.** Não há histórico real de falhas, furtos ou deslocamentos disponível; os dados do projeto são sintéticos. Um modelo treinado sobre eles apenas reproduziria, de forma mais cara e menos transparente, as regras usadas para gerá-los. Heurísticas explícitas são o ponto de partida mais honesto: ficam visíveis, testáveis e fáceis de calibrar quando houver dados de verdade.
 
-**Onde a IA entraria com dados reais:** prever falhas por equipamento com histórico de manutenção (modelos de sobrevivência), calibrar os pesos de risco com ocorrências reais e um LLM **local** só para redigir o relatório a partir dos mesmos números, mantendo a decisão nas regras.
+**O tamanho do problema define a ferramenta.** A base de conhecimento consultada na investigação é pequena, e a busca por relevância de termos (BM25) encontra o trecho certo sem embeddings, banco vetorial ou serviço externo. A estrutura, ainda assim, separa a recuperação do trecho da decisão tomada com base nele, e a fonte é sempre citada; uma etapa generativa pode ser acrescentada no futuro sem reescrever o restante.
+
+**Simplicidade operacional também é requisito.** Sem chave de API, custo por chamada, GPU ou dependência de rede, o sistema roda da mesma forma em qualquer máquina, inclusive offline, e os dados da cidade não saem do ambiente em que estão.
+
+O próprio desafio lembra que a avaliação *"não será sobre quem usou mais tecnologia, mais IA ou mais linhas de código"*. Aqui, a inteligência está em cruzar dados, antecipar riscos e transformar isso numa decisão que o gestor consegue verificar.
+
+**Evolução com dados reais:** modelos de previsão de falha por equipamento a partir do histórico de manutenção, calibração dos pesos de risco com as ocorrências registradas e, se fizer sentido, um modelo de linguagem executado localmente apenas para redigir relatórios a partir dos números já calculados, com a decisão mantida nas regras.
 
 ## Demonstração em 5 minutos
 
@@ -393,7 +395,7 @@ O botão do **microfone**, no canto da tela, abre o painel de voz. Pergunte fala
 A voz usa a **Web Speech API** do navegador:
 
 - **Fala** (texto → voz): feita pelo próprio navegador, funciona offline.
-- **Escuta** (voz → texto): o navegador envia o áudio ao serviço dele (Google no Chrome, Microsoft no Edge). Precisa de internet, permissão de microfone e página em `localhost` ou HTTPS. Firefox não tem; o Brave tem a API mas não o serviço, então o microfone aparece desabilitado nele.
+- **Escuta** (voz → texto): o navegador envia o áudio ao serviço dele (Google no Chrome, Microsoft no Edge). Precisa de internet, permissão de microfone e página em `localhost` ou HTTPS. Firefox não tem; no Brave costuma falhar.
 
 Sem microfone, sem internet ou noutro navegador, **digite** a pergunta: a resposta sai igual.
 
@@ -401,7 +403,7 @@ Sem microfone, sem internet ou noutro navegador, **digite** a pergunta: a respos
 | --- | --- |
 | Botão do microfone desabilitado | Use Chrome ou Edge, ou digite |
 | "Permissão de microfone negada" | Cadeado da barra de endereço → Microfone → Permitir, e recarregue |
-| "O serviço de transcrição do navegador não respondeu" | Sem internet, ou navegador sem o serviço (Brave, Opera): use Chrome ou Edge, ou digite |
+| "Precisa de internet" | Conecte-se ou digite |
 | Nada acontece pelo IP da rede (`http://192.168…`) | O microfone só funciona em `localhost` ou HTTPS |
 
 </details>
