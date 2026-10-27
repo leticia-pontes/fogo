@@ -13,7 +13,7 @@ import { recuperarTrechos } from '../src/app/core/manuals';
 import { JANELA_VIZINHANCA_H, investigarOcorrencia } from '../src/app/core/investigation';
 import { bloqueioDespacho, despachar, sugerirDespacho } from '../src/app/core/dispatch';
 import { Resolucao, encerrarOcorrencia, gerarRelatorio, validarEncerramento } from '../src/app/core/closure';
-import { PredictionAction, abrirOcorrenciasDaPrevisao, actionSignature, aplicarAcoesPrevisao, validarAcoesPrevisao } from '../src/app/core/prediction-actions';
+import { PredictionAction, abrirOcorrenciasDaPrevisao, actionSignatures, aplicarAcoesPrevisao, validarAcoesPrevisao } from '../src/app/core/prediction-actions';
 import { OcorrenciaNaoEncerradaError, montarComprovante, type Comprovante } from '../src/app/core/comprovante';
 import { renderComprovanteHtml } from '../src/app/core/comprovante-html';
 import { networkInterfaces } from 'node:os';
@@ -394,14 +394,14 @@ route('POST', '/api/previsoes/aplicar', (req, ctx) => {
         depois: { ocorrenciaId: ocorrencia.id, status: ocorrencia.status, equipamentoId: eq.id, situacao: eq.status, previsaoId: body.previsaoId },
       });
     }
-    const ids = new Set(acoes.flatMap((a) => (a.kind === 'maintenance' ? a.equipmentIds : a.agentIds)));
+    const ids = new Set(acoes.flatMap((a) => (a.kind === 'maintenance' ? a.equipmentIds : a.kind === 'move_agents' ? a.agentIds : [])));
     const pick = (st: typeof before) => ({ equipamentos: st.equipment.filter((e) => ids.has(e.id)), agentes: st.agents.filter((a) => ids.has(a.id)) });
     ctx.repo.registrarAuditoria({
       acao: 'APLICAR_PREVISAO',
       autor: req.autor,
       descricao: `${body.previsaoId}: ${recomendacao}`.slice(0, 500),
       antes: pick(before),
-      depois: { ...pick(after), assinaturas: acoes.map(actionSignature), ocorrencias: abertas.map((o) => o.ocorrencia.id) },
+      depois: { ...pick(after), assinaturas: acoes.flatMap(actionSignatures), ocorrencias: abertas.map((o) => o.ocorrencia.id) },
     });
     ctx.afterWrite();
     return abertas.map(({ ocorrencia, criada }) => ({ id: ocorrencia.id, equipamentoId: ocorrencia.equipamentoId, tipoAlerta: ocorrencia.tipoAlerta, criada }));

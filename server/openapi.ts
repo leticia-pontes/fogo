@@ -351,12 +351,14 @@ export const OPENAPI = {
                 items: {
                   type: 'object',
                   properties: {
-                    kind: { type: 'string', enum: ['maintenance', 'move_agents'] },
+                    kind: { type: 'string', enum: ['maintenance', 'move_agents', 'request_staff'], description: 'request_staff só registra o pedido de reforço à escala (count agentes para neighborhood, no dia date)' },
                     equipmentIds: { type: 'array', items: { type: 'string' } },
                     priority: { type: 'string', enum: ['none', 'scheduled', 'immediate'] },
                     nextDate: { type: 'string', example: '2026-10-27' },
                     neighborhood: { type: 'string' },
                     agentIds: { type: 'array', items: { type: 'string' } },
+                    count: { type: 'integer', minimum: 1 },
+                    date: { type: 'string', example: '2026-10-27' },
                   },
                 },
               },

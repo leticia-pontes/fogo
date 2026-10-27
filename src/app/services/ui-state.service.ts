@@ -1,11 +1,12 @@
 import { Injectable, signal } from '@angular/core';
 import type { RoadPick } from '../data/city-map';
+import type { AgentRole } from '../models/fogo.models';
 
 export type ActiveModuleTab = 'ops' | 'predictive';
 
 /** Pedido para o inventário ao abrir: criar um item novo ou editar um existente. */
 export type InventoryRequest =
-  | { mode: 'create'; kind: 'equipment' | 'agent'; hintAutofill?: boolean; at?: RoadPick }
+  | { mode: 'create'; kind: 'equipment' | 'agent'; hintAutofill?: boolean; at?: RoadPick; neighborhood?: string; role?: AgentRole }
   | { mode: 'edit'; kind: 'equipment' | 'agent'; id: string }
   | null;
 

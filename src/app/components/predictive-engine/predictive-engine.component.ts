@@ -1,4 +1,5 @@
 import { Component, computed, inject } from '@angular/core';
+import { RISK_HIGH, RISK_MEDIUM } from '../../core/analysis';
 import { EMPTY_FILTERS, CityStateService } from '../../services/city-state.service';
 import { Prediction, PredictionKind, PredictionService } from '../../services/prediction.service';
 import { UiStateService } from '../../services/ui-state.service';
@@ -42,7 +43,7 @@ const KIND_LABELS: Record<PredictionKind, string> = {
           @let applied = predictions.isApplied(p);
           <article
             class="bg-fogo-panel border rounded-xl p-4 flex flex-col gap-3"
-            [class]="applied ? 'border-fogo-green/50' : p.riskScore >= 75 ? 'border-fogo-red/60' : 'border-fogo-border'"
+            [class]="applied ? 'border-fogo-green/50' : p.riskScore >= riskHigh ? 'border-fogo-red/60' : 'border-fogo-border'"
           >
             <header class="flex items-start justify-between gap-3">
               <div>
@@ -87,11 +88,21 @@ const KIND_LABELS: Record<PredictionKind, string> = {
             <footer class="mt-auto flex gap-2">
               @if (applied) {
                 <span class="flex-1 py-2 rounded-lg bg-fogo-green/15 border border-fogo-green/40 text-fogo-green text-sm text-center font-medium">
-                  ✓ Recomendação aplicada
+                  ✓ {{ appliedLabel(p) }}
                 </span>
+                @if (staffRequest(p); as req) {
+                  <button
+                    type="button"
+                    (click)="registerAgent(p, req.neighborhood)"
+                    title="O reforço chegou? Cadastre o agente no bairro e a previsão se recalcula."
+                    class="px-3 py-2 rounded-lg bg-fogo-bg border border-fogo-border text-sm hover:border-fogo-ember cursor-pointer"
+                  >
+                    Cadastrar agente
+                  </button>
+                }
               } @else if (!p.actions.length) {
                 <span class="flex-1 py-2 rounded-lg bg-fogo-bg border border-fogo-border text-fogo-muted text-sm text-center">
-                  Sem ação automática: depende da escala
+                  {{ noActionText(p) }}
                 </span>
               } @else {
                 <button
@@ -165,6 +176,7 @@ export class PredictiveEngineComponent {
   private readonly ui = inject(UiStateService);
   readonly predictions = inject(PredictionService);
   readonly kindLabels = KIND_LABELS;
+  readonly riskHigh = RISK_HIGH;
 
   /** Pendentes primeiro (por risco); as já aplicadas vão para o fim, enquanto o efeito não chega. */
   readonly ordered = computed(() => {
@@ -177,6 +189,15 @@ export class PredictiveEngineComponent {
    * "em manutenção" (indisponível) até a equipe concluir, e só então a previsão baixa ou some.
    */
   pendencia(p: Prediction): string {
+    const req = this.staffRequest(p);
+    const reqText = req
+      ? `Reforço de ${req.count} agente(s) solicitado à escala hoje. Quando chegar, use "Cadastrar agente" para lotá-lo em ${req.neighborhood}: a previsão se recalcula na hora.`
+      : '';
+    const rest = this.pendenciaEquipamentos(p);
+    return [reqText, rest].filter(Boolean).join(' ');
+  }
+
+  private pendenciaEquipamentos(p: Prediction): string {
     const ids = new Set(p.actions.flatMap((a) => (a.kind === 'maintenance' ? a.equipmentIds : [])));
     const fora = this.city.equipment().filter((e) => ids.has(e.id) && e.status !== 'operational' && e.maintenance.priority === 'immediate');
     if (fora.length) {
@@ -184,15 +205,36 @@ export class PredictiveEngineComponent {
         .map((e) => e.serialNumber)
         .join(', ')}). O risco baixa quando o reparo for concluído: Central → Rota de manutenção (a fila da equipe técnica) → Concluir, ou mudando a situação para Operacional.`;
     }
+    if (this.staffRequest(p)) return '';
     return 'Ações executadas. O risco que resta vem de fatores fora do alcance desta recomendação (fluxo no pico, efetivo do bairro).';
   }
 
+  /** Pedido de reforço à escala da recomendação, se houver. */
+  staffRequest(p: Prediction): { neighborhood: string; count: number } | null {
+    const req = p.actions.find((a) => a.kind === 'request_staff');
+    return req ? { neighborhood: req.neighborhood, count: req.count } : null;
+  }
+
+  appliedLabel(p: Prediction): string {
+    return p.actions.every((a) => a.kind === 'request_staff') ? 'Reforço solicitado à escala' : 'Recomendação aplicada';
+  }
+
+  /** Abre o cadastro de agente já lotado no bairro (Guarda Municipal quando o reforço é de segurança). */
+  registerAgent(p: Prediction, neighborhood: string): void {
+    this.ui.openInventory({ mode: 'create', kind: 'agent', neighborhood, role: p.kind === 'security_patrol' ? 'municipal_guard' : undefined });
+  }
+
+  /** Por que o card não tem botão, e o que o operador faz no lugar. */
+  noActionText(p: Prediction): string {
+    return p.kind === 'batch_failure' ? 'Sem ação aqui: os reparos estão nos cards dos bairros' : 'Sem ação automática';
+  }
+
   riskClass(score: number): string {
-    return score >= 75 ? 'text-fogo-red' : score >= 50 ? 'text-fogo-amber' : 'text-fogo-green';
+    return score >= RISK_HIGH ? 'text-fogo-red' : score >= RISK_MEDIUM ? 'text-fogo-amber' : 'text-fogo-green';
   }
 
   riskBarClass(score: number): string {
-    return score >= 75 ? 'bg-fogo-red' : score >= 50 ? 'bg-fogo-amber' : 'bg-fogo-green';
+    return score >= RISK_HIGH ? 'bg-fogo-red' : score >= RISK_MEDIUM ? 'bg-fogo-amber' : 'bg-fogo-green';
   }
 
   /**
@@ -205,7 +247,8 @@ export class PredictiveEngineComponent {
       this.city.filters.set({ ...EMPTY_FILTERS, neighborhood: p.neighborhood });
       this.ui.focusDistrict(p.neighborhood);
     } else {
-      const firstId = p.actions.find((a) => a.kind === 'maintenance')?.equipmentIds[0];
+      // O lote mostra uma unidade com problema (a primeira ação pode ser a preventiva de uma que ainda opera).
+      const firstId = p.focusEquipmentIds?.[0] ?? p.actions.find((a) => a.kind === 'maintenance')?.equipmentIds[0];
       const eq = this.city.equipment().find((e) => e.id === firstId);
       this.city.filters.set(EMPTY_FILTERS);
       if (eq) {

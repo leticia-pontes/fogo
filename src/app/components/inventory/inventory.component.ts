@@ -547,7 +547,7 @@ export class InventoryComponent implements OnInit {
     if (request.mode === 'create') {
       this.autofillHint.set(!!request.hintAutofill);
       if (request.kind === 'equipment') this.openEquipment(null, request.at);
-      else this.openAgent(null);
+      else this.openAgent(null, request.neighborhood ?? request.at?.neighborhood, request.role, request.at);
       return;
     }
     if (request.kind === 'equipment') {
@@ -749,22 +749,23 @@ export class InventoryComponent implements OnInit {
   // Agentes
   // ---------------------------------------------------------------------------
 
-  openAgent(agent: Agent | null): void {
+  /** `at`: ponto clicado no mapa; o agente nasce exatamente ali, e não espalhado em volta do centro do bairro. */
+  openAgent(agent: Agent | null, neighborhood?: string, role: AgentRole = 'transit_agent', at?: RoadPick): void {
     if (agent) {
       this.agentDraft = { ...agent };
       return;
     }
-    const hood = NEIGHBORHOODS[0];
+    const hood = NEIGHBORHOODS.find((n) => n.name === neighborhood) ?? NEIGHBORHOODS[0];
     this.agentDraft = {
       id: null,
       name: '',
       badgeNumber: '',
-      role: 'transit_agent',
-      agency: ROLE_AGENCY.transit_agent,
+      role,
+      agency: ROLE_AGENCY[role],
       status: 'active',
       neighborhood: hood.name,
-      lat: Number((hood.lat + jitter()).toFixed(6)),
-      lng: Number((hood.lng + jitter()).toFixed(6)),
+      lat: Number((at?.lat ?? hood.lat + jitter()).toFixed(6)),
+      lng: Number((at?.lng ?? hood.lng + jitter()).toFixed(6)),
     };
   }
 

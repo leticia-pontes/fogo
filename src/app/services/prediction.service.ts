@@ -1,17 +1,17 @@
 import { analisarLotes, emFalha } from '../core/batch';
 import { Injectable, Injector, computed, inject } from '@angular/core';
-import { NEIGHBORHOOD_HISTORY, daysFromToday } from '../data/mock-data';
+import { daysFromToday } from '../data/mock-data';
 import { STATUS_LABELS } from '../models/equipment-schema';
 import { Agent, Equipment } from '../models/fogo.models';
 import { RISK_HIGH, SURGE_FLOW_FACTOR, collapseStats } from '../core/analysis';
-import { PredictionAction, actionSignature, aplicarAcoesPrevisao } from '../core/prediction-actions';
+import { PredictionAction, actionSignatures, aplicarAcoesPrevisao } from '../core/prediction-actions';
 import { ServerState } from './api';
 import { CityStateService, daysUntil } from './city-state.service';
 import { OccurrenceService } from './occurrence.service';
 import { UiStateService } from './ui-state.service';
 
 export type { PredictionAction } from '../core/prediction-actions';
-export { actionSignature } from '../core/prediction-actions';
+export { actionSignatures } from '../core/prediction-actions';
 
 export type PredictionKind = 'traffic_collapse' | 'enforcement_gap' | 'batch_failure' | 'staff_reinforcement' | 'security_patrol';
 
@@ -30,6 +30,19 @@ export interface Prediction {
   /** 3. Recomendação de decisão */
   recommendation: string;
   actions: PredictionAction[];
+  /** Equipamentos que o "Ver no mapa" destaca (o lote não tem bairro; são as unidades com problema). */
+  focusEquipmentIds?: string[];
+}
+
+/** Ação que registra o pedido de reforço à escala quando não há agente para remanejar. */
+function requestStaff(neighborhood: string, count: number): PredictionAction {
+  return { kind: 'request_staff', neighborhood, count, date: daysFromToday(0) };
+}
+
+/** Situação da unidade como o operador a vê no mapa ("em manutenção", ou "operacional, manutenção imediata pendente"). */
+function unitState(e: Equipment): string {
+  const status = STATUS_LABELS[e.status].toLowerCase();
+  return e.status === 'operational' && e.maintenance.priority === 'immediate' ? `${status}, manutenção imediata pendente` : status;
 }
 
 const COLLAPSE_THRESHOLD = RISK_HIGH;
@@ -39,6 +52,16 @@ const isFailing = emFalha;
 
 function onDuty(a: Agent): boolean {
   return a.status !== 'off_duty';
+}
+
+const WEEKDAYS = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'];
+
+/** "Próximo pico: sexta-feira, 18h–19h30 (em 3 dias)": o histórico só diz o dia da semana; a distância vem de hoje. */
+export function peakHorizon(peakWindow: string, today = new Date()): string {
+  const day = WEEKDAYS.findIndex((d) => peakWindow.startsWith(d));
+  if (day < 0) return `Próximo pico: ${peakWindow}`;
+  const days = (day - today.getDay() + 7) % 7;
+  return `Próximo pico: ${peakWindow} (${days === 0 ? 'hoje' : days === 1 ? 'amanhã' : `em ${days} dias`})`;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -52,14 +75,46 @@ export class PredictionService {
     const equipment = this.city.equipment();
     const agents = this.city.agents();
     const surge = this.city.peakSurge();
-    return [...this.neighborhoodPredictions(equipment, agents, surge), ...this.batchFailurePredictions(equipment)].sort(
+    const territorial = this.neighborhoodPredictions(equipment, agents, surge);
+    // Equipamentos que já têm ação num card de bairro não se repetem no card de lote.
+    const covered = new Set(territorial.flatMap((p) => p.actions.flatMap((a) => (a.kind === 'maintenance' ? a.equipmentIds : []))));
+    return [...territorial, ...this.batchFailurePredictions(equipment, covered)].sort(
       (a, b) => b.riskScore - a.riskScore
     );
   });
 
   isApplied(prediction: Prediction): boolean {
+    return prediction.actions.length > 0 && this.pendingActions(prediction).length === 0;
+  }
+
+  /**
+   * Itens da recomendação ainda não tratados. Um item conta como tratado se foi aplicado E o estado ainda reflete
+   * isso: um equipamento que voltou a operar e caiu de novo (telemetria) ou um agente que entrou de folga voltam a pendentes.
+   */
+  pendingActions(prediction: Prediction): PredictionAction[] {
     const applied = this.city.appliedActions();
-    return prediction.actions.length > 0 && prediction.actions.every((a) => applied.has(actionSignature(a)));
+    const equipment = new Map(this.city.equipment().map((e) => [e.id, e]));
+    const agents = new Map(this.city.agents().map((a) => [a.id, a]));
+    const pending: PredictionAction[] = [];
+    for (const action of prediction.actions) {
+      const sigs = actionSignatures(action);
+      if (action.kind === 'maintenance') {
+        const ids = action.equipmentIds.filter((id, i) => {
+          const e = equipment.get(id);
+          return !applied.has(sigs[i]) || !e || e.status === 'malfunction' || e.maintenance.priority !== action.priority;
+        });
+        if (ids.length) pending.push({ ...action, equipmentIds: ids });
+      } else if (action.kind === 'request_staff') {
+        if (!applied.has(sigs[0])) pending.push(action);
+      } else {
+        const ids = action.agentIds.filter((id, i) => {
+          const a = agents.get(id);
+          return !applied.has(sigs[i]) || !a || a.neighborhood !== action.neighborhood || a.status === 'off_duty';
+        });
+        if (ids.length) pending.push({ ...action, agentIds: ids });
+      }
+    }
+    return pending;
   }
 
   /**
@@ -67,7 +122,9 @@ export class PredictionService {
    * ocorrências dos equipamentos que vão para a equipe técnica e auditoria). Offline: as mesmas funções puras, no navegador.
    */
   async apply(prediction: Prediction): Promise<void> {
-    if (!prediction.actions.length || this.isApplied(prediction)) return;
+    // Só o que falta: reaplicar o já tratado reabriria a fila da equipe técnica sem necessidade.
+    const actions = this.pendingActions(prediction);
+    if (!actions.length) return;
     const antes = this.city.snapshot();
     const occ = this.injector.get(OccurrenceService);
     try {
@@ -75,15 +132,15 @@ export class PredictionService {
         const r = await this.city.serverAction<ServerState & { ocorrencias: { id: string; criada: boolean }[] }>('/previsoes/aplicar', {
           previsaoId: prediction.id,
           recomendacao: prediction.recommendation,
-          acoes: prediction.actions,
+          acoes: actions,
         });
-        await occ.aposAplicarPrevisao(antes, prediction.actions);
+        await occ.aposAplicarPrevisao(antes, actions);
         this.avisar(prediction, r.ocorrencias.filter((o) => o.criada).length);
       } else {
-        this.city.replaceState(aplicarAcoesPrevisao(antes, prediction.actions));
-        this.city.markApplied(prediction.actions.map(actionSignature));
+        this.city.replaceState(aplicarAcoesPrevisao(antes, actions));
+        this.city.markApplied(actions.flatMap(actionSignatures));
         const total = occ.list().length;
-        await occ.aposAplicarPrevisao(antes, prediction.actions);
+        await occ.aposAplicarPrevisao(antes, actions);
         this.avisar(prediction, occ.list().length - total);
       }
     } catch (err) {
@@ -93,11 +150,12 @@ export class PredictionService {
 
   private avisar(prediction: Prediction, ocorrencias: number): void {
     this.city.log(`Recomendação aplicada: ${prediction.recommendation}`, 'good', 'prediction_applied');
-    this.ui.notify(
-      ocorrencias ? `Recomendação aplicada: ${ocorrencias} ocorrência(s) aberta(s) na aba Ocorrências.` : 'Recomendação aplicada.',
-      'good',
-      4200
-    );
+    const request = prediction.actions.find((a) => a.kind === 'request_staff');
+    const parts = [
+      ...(ocorrencias ? [`${ocorrencias} ocorrência(s) aberta(s) na aba Ocorrências`] : []),
+      ...(request ? [`reforço de ${request.count} agente(s) solicitado à escala`] : []),
+    ];
+    this.ui.notify(parts.length ? `Recomendação aplicada: ${parts.join('; ')}.` : 'Recomendação aplicada.', 'good', 4200);
   }
 
   /**
@@ -150,26 +208,33 @@ export class PredictionService {
         ? [`Véspera de pico: fluxo previsto ${Math.round((SURGE_FLOW_FACTOR - 1) * 100)}% acima da média histórica do bairro`]
         : [];
 
-      if (s.collapseScore >= COLLAPSE_THRESHOLD && down.length > 0) {
+      // Colapso também sem fiscalização caída: fluxo alto + déficit de efetivo já alcançam o limiar.
+      if (s.collapseScore >= COLLAPSE_THRESHOLD && (down.length > 0 || deficit > 0)) {
         const plan = deficit > 0 ? planReinforcement(n.name, deficit) : null;
-        const actions: PredictionAction[] = [
-          { kind: 'maintenance', equipmentIds: down.map((e) => e.id), priority: 'immediate', nextDate: daysFromToday(0) },
-        ];
+        const actions: PredictionAction[] = [];
+        if (down.length) actions.push({ kind: 'maintenance', equipmentIds: down.map((e) => e.id), priority: 'immediate', nextDate: daysFromToday(0) });
         if (plan?.ids.length) actions.push({ kind: 'move_agents', neighborhood: n.name, agentIds: plan.ids });
+        if (plan && plan.remaining > 0) actions.push(requestStaff(n.name, plan.remaining));
 
-        const steps = [`abrir ocorrência e acionar a equipe técnica para ${down.map((e) => e.serialNumber).join(', ')}`, ...(plan?.parts ?? [])];
+        const steps = [
+          ...(down.length ? [`abrir ocorrência e acionar a equipe técnica para ${down.map((e) => e.serialNumber).join(', ')}`] : []),
+          ...(plan?.parts ?? []),
+          ...(plan && plan.remaining > 0 ? [`solicitar ${plan.remaining} agente(s) extra(s) à escala`] : []),
+        ];
         result.push({
           id: `collapse:${n.name}`,
           kind: 'traffic_collapse',
           title: 'Índice de Risco de Colapso Viário',
           subject: `${n.name} (${n.zone})`,
           neighborhood: n.name,
-          horizon: `Próximo pico: ${history.peakWindow}`,
+          horizon: s.surging ? `Próximo pico: ${history.peakWindow}` : peakHorizon(history.peakWindow),
           riskScore: Math.min(100, s.collapseScore),
           evidence: [
-            `${down.length} de ${s.enforcement.length} equipamentos de fiscalização indisponíveis: ${down
-              .map((e) => `${e.serialNumber} (${STATUS_LABELS[e.status].toLowerCase()})`)
-              .join(', ')}`,
+            down.length
+              ? `${down.length} de ${s.enforcement.length} equipamentos de fiscalização indisponíveis: ${down
+                  .map((e) => `${e.serialNumber} (${STATUS_LABELS[e.status].toLowerCase()})`)
+                  .join(', ')}`
+              : `Fiscalização completa (${s.enforcement.length} equipamentos operando): o risco vem do fluxo e do efetivo`,
             s.surging
               ? `Fluxo previsto de ${history.peakFlowVehiclesPerHour.toLocaleString('pt-BR')} veículos/h ${history.peakWindow}`
               : `Fluxo histórico de ${history.peakFlowVehiclesPerHour.toLocaleString('pt-BR')} veículos/h em ${history.peakWindow}`,
@@ -194,7 +259,7 @@ export class PredictionService {
           title: 'Fiscalização Comprometida (atenção antes do colapso)',
           subject: `${n.name} (${n.zone})`,
           neighborhood: n.name,
-          horizon: `Próximo pico: ${history.peakWindow}`,
+          horizon: s.surging ? `Próximo pico: ${history.peakWindow}` : peakHorizon(history.peakWindow),
           riskScore: s.collapseScore,
           evidence: [
             `${down.length} de ${s.enforcement.length} equipamentos de fiscalização indisponíveis: ${down
@@ -221,19 +286,27 @@ export class PredictionService {
           title: 'Necessidade de Reforço de Efetivo',
           subject: `${n.name} (${n.zone})`,
           neighborhood: n.name,
-          horizon: `Próximo pico: ${history.peakWindow}`,
+          horizon: s.surging ? `Próximo pico: ${history.peakWindow}` : peakHorizon(history.peakWindow),
           riskScore: Math.min(100, Math.round((deficit / history.requiredAgentsAtPeak) * 60 + history.incidentsPerWeek * 2)),
           evidence: [
             ...surgeEvidence,
             effectiveEvidence,
-            `Média de ${history.incidentsPerWeek} ocorrências/semana, com concentração em ${NEIGHBORHOOD_HISTORY[n.name].peakWindow}`,
-            `${critical} equipamento(s) com falha grave ou furto no bairro`,
+            `Média de ${history.incidentsPerWeek} ocorrências/semana, com concentração em ${history.peakWindow}`,
+            ...(critical ? [`${critical} equipamento(s) com falha grave ou furto no bairro (tratados na aba Ocorrências)`] : []),
             `Fluxo histórico de ${history.peakFlowVehiclesPerHour.toLocaleString('pt-BR')} veículos/h no pico`,
           ],
-          recommendation: plan.parts.length
-            ? this.capitalize(plan.parts.join('; ')) + '.'
-            : `Solicitar ${deficit} agente(s) extra(s) à escala: não há excedente disponível em outros bairros.`,
-          actions: plan.ids.length ? [{ kind: 'move_agents', neighborhood: n.name, agentIds: plan.ids }] : [],
+          recommendation: this.capitalize(
+            [
+              ...plan.parts,
+              ...(plan.remaining > 0
+                ? [`solicitar ${plan.remaining} agente(s) extra(s) à escala${plan.parts.length ? '' : ': não há excedente disponível em outros bairros'}`]
+                : []),
+            ].join('; ')
+          ) + '.',
+          actions: [
+            ...(plan.ids.length ? [{ kind: 'move_agents', neighborhood: n.name, agentIds: plan.ids } as PredictionAction] : []),
+            ...(plan.remaining > 0 ? [requestStaff(n.name, plan.remaining)] : []),
+          ],
         });
       }
     }
@@ -284,12 +357,14 @@ export class PredictionService {
           `Média de ${history.incidentsPerWeek} ocorrências/semana nas últimas 12 semanas`,
           'Padrão considerado: furtos em sequência no mesmo bairro indicam ação coordenada',
         ],
-        recommendation: parts.length
-          ? this.capitalize(parts.join('; ')) + ' e intensificar o patrulhamento ostensivo.'
-          : deficit > 0
-            ? `Solicitar ${deficit} viatura(s) extra(s) da Guarda/PM: não há efetivo excedente disponível.`
-            : 'Efetivo de segurança suficiente no bairro: manter patrulhamento ostensivo e monitorar as câmeras vizinhas.',
-        actions: ids.length ? [{ kind: 'move_agents', neighborhood: n.name, agentIds: ids }] : [],
+        recommendation: parts.length || remaining > 0
+          ? this.capitalize([...parts, ...(remaining > 0 ? [`solicitar ${remaining} viatura(s) extra(s) da Guarda/PM à escala`] : [])].join('; ')) +
+            ' e intensificar o patrulhamento ostensivo.'
+          : 'Efetivo de segurança suficiente no bairro: manter patrulhamento ostensivo e monitorar as câmeras vizinhas.',
+        actions: [
+          ...(ids.length ? [{ kind: 'move_agents', neighborhood: n.name, agentIds: ids } as PredictionAction] : []),
+          ...(remaining > 0 ? [requestStaff(n.name, remaining)] : []),
+        ],
       });
     }
 
@@ -297,18 +372,18 @@ export class PredictionService {
   }
 
   /** Tendência de falha em lote: mesmo fabricante/modelo com taxa de falha acima do restante da frota. */
-  private batchFailurePredictions(equipment: Equipment[]): Prediction[] {
+  private batchFailurePredictions(equipment: Equipment[], covered: ReadonlySet<string>): Prediction[] {
     const result: Prediction[] = [];
     for (const { lote: lot, unidades: units, emFalha: failing, taxa: rate, taxaFrota: fleetRate } of analisarLotes(equipment)) {
       if (failing.length < 2 || rate < 0.3) continue;
 
       const healthy = units.filter((e) => e.status === 'operational' && !isFailing(e));
       const overdue = units.filter((e) => e.maintenance.nextDate && daysUntil(e.maintenance.nextDate) < 0).length;
-      const hoods = [...new Set(failing.map((e) => e.location.neighborhood))];
+      const own = failing.filter((e) => !covered.has(e.id));
+      const elsewhere = failing.filter((e) => covered.has(e.id));
 
-      const actions: PredictionAction[] = [
-        { kind: 'maintenance', equipmentIds: failing.map((e) => e.id), priority: 'immediate', nextDate: daysFromToday(0) },
-      ];
+      const actions: PredictionAction[] = [];
+      if (own.length) actions.push({ kind: 'maintenance', equipmentIds: own.map((e) => e.id), priority: 'immediate', nextDate: daysFromToday(0) });
       if (healthy.length) {
         actions.push({ kind: 'maintenance', equipmentIds: healthy.map((e) => e.id), priority: 'scheduled', nextDate: daysFromToday(1) });
       }
@@ -318,18 +393,38 @@ export class PredictionService {
         kind: 'batch_failure',
         title: 'Tendência de Falha em Lote de Equipamentos',
         subject: `${lot} (${units.length} unidades)`,
-        horizon: 'Próximos 15 dias',
+        horizon: 'Tendência do lote (sem prazo estimado)',
         riskScore: Math.min(100, Math.round(rate * 100 + failing.length * 5)),
         evidence: [
-          `${failing.length} de ${units.length} unidades do modelo com falha ou manutenção pendente`,
+          `${failing.length} de ${units.length} unidades do modelo com problema: ${failing
+            .map((e) => `${e.serialNumber} (${unitState(e)}, ${e.location.neighborhood})`)
+            .join('; ')}`,
           `Taxa de falha do lote de ${Math.round(rate * 100)}% contra ${Math.round(fleetRate * 100)}% no restante da frota`,
-          `Falhas distribuídas em ${hoods.length} bairro(s): ${hoods.join(', ')}`,
+          ...(healthy.length
+            ? [`Operando normalmente: ${healthy.map((e) => `${e.serialNumber} (${e.location.neighborhood})`).join('; ')}`]
+            : []),
           ...(overdue ? [`${overdue} unidade(s) com manutenção preventiva vencida`] : []),
+          ...(elsewhere.length
+            ? [`O reparo de ${elsewhere.map((e) => e.serialNumber).join(', ')} já está no card do bairro (${[
+                ...new Set(elsewhere.map((e) => e.location.neighborhood)),
+              ].join(', ')}) e não se repete aqui`]
+            : []),
         ],
         recommendation:
-          `Abrir ocorrência e acionar a equipe técnica para ${failing.map((e) => e.serialNumber).join(', ')}` +
-          (healthy.length ? ` e antecipar a preventiva das ${healthy.length} unidades operacionais do lote para amanhã.` : '.'),
+          this.capitalize(
+            [
+              ...(own.length ? [`abrir ocorrência e acionar a equipe técnica para ${own.map((e) => e.serialNumber).join(', ')}`] : []),
+              ...(healthy.length
+                ? [
+                    `antecipar para amanhã a preventiva ${healthy.length === 1 ? 'da unidade que ainda opera' : `das ${healthy.length} unidades que ainda operam`} (${healthy
+                      .map((e) => e.serialNumber)
+                      .join(', ')}), antes que falhe(m) como as demais`,
+                  ]
+                : []),
+            ].join(' e ') || 'acompanhar os reparos pelos cards dos bairros'
+          ) + '.',
         actions,
+        focusEquipmentIds: failing.map((e) => e.id),
       });
     }
     return result;

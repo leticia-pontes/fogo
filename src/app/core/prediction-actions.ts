@@ -6,15 +6,21 @@ import { CityState } from './state';
 /** Ação de uma recomendação da Cidade Preditiva. */
 export type PredictionAction =
   | { kind: 'move_agents'; neighborhood: string; agentIds: string[] }
-  | { kind: 'maintenance'; equipmentIds: string[]; priority: MaintenancePriority; nextDate: string };
+  | { kind: 'maintenance'; equipmentIds: string[]; priority: MaintenancePriority; nextDate: string }
+  /** Sem agente para remanejar: registra o pedido de reforço à escala (não altera o estado; vale para o dia do pedido). */
+  | { kind: 'request_staff'; neighborhood: string; count: number; date: string };
 
 const PRIORIDADES: MaintenancePriority[] = ['none', 'scheduled', 'immediate'];
 
-/** Identidade estável de uma ação (marca a recomendação como aplicada). */
-export function actionSignature(action: PredictionAction): string {
+/**
+ * Identidade de cada item de uma ação (um por equipamento ou agente), que marca a recomendação como aplicada.
+ * Por item, e não pela lista: um equipamento que cai depois não desfaz a marca dos que já foram tratados.
+ */
+export function actionSignatures(action: PredictionAction): string[] {
+  if (action.kind === 'request_staff') return [`req:${action.neighborhood}:${action.count}:${action.date}`];
   return action.kind === 'move_agents'
-    ? `move:${action.neighborhood}:${[...action.agentIds].sort().join(',')}`
-    : `mnt:${action.priority}:${[...action.equipmentIds].sort().join(',')}`;
+    ? action.agentIds.map((id) => `move:${action.neighborhood}:${id}`)
+    : action.equipmentIds.map((id) => `mnt:${action.priority}:${id}`);
 }
 
 /** Lista de erros das ações recebidas (vazia = válidas). */
@@ -35,8 +41,12 @@ export function validarAcoesPrevisao(estado: CityState, input: unknown): string[
       const ids = a['agentIds'];
       if (!Array.isArray(ids) || !ids.length) errors.push(`acoes[${i}]: agentIds é obrigatório`);
       else ids.filter((id) => !agIds.has(id)).forEach((id) => errors.push(`acoes[${i}]: agente ${id} não encontrado`));
+    } else if (a?.kind === 'request_staff') {
+      if (!NEIGHBORHOODS.some((n) => n.name === a['neighborhood'])) errors.push(`acoes[${i}]: bairro ${String(a['neighborhood'])} não existe`);
+      if (!Number.isInteger(a['count']) || (a['count'] as number) < 1) errors.push(`acoes[${i}]: count deve ser um inteiro positivo`);
+      if (typeof a['date'] !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(a['date'])) errors.push(`acoes[${i}]: date deve ser AAAA-MM-DD`);
     } else {
-      errors.push(`acoes[${i}]: kind deve ser maintenance ou move_agents`);
+      errors.push(`acoes[${i}]: kind deve ser maintenance, move_agents ou request_staff`);
     }
   });
   return errors;
@@ -58,7 +68,7 @@ export function aplicarAcoesPrevisao(estado: CityState, acoes: readonly Predicti
           ? { ...e, status: e.status === 'malfunction' ? 'maintenance' : e.status, maintenance: { priority: action.priority, nextDate: action.nextDate } }
           : e
       );
-    } else {
+    } else if (action.kind === 'move_agents') {
       const hood = NEIGHBORHOODS.find((n) => n.name === action.neighborhood);
       const ids = new Set(action.agentIds);
       let k = 0;

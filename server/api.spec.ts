@@ -324,7 +324,7 @@ describe('API + SQLite', () => {
       const furtado = estado.equipment.find((e: Equipment) => e.status === 'stolen');
       const emFalha = estado.equipment.find((e: Equipment) => e.status === 'malfunction');
       const acoes = [{ kind: 'maintenance', equipmentIds: [furtado.id, emFalha.id], priority: 'immediate', nextDate: '2026-10-27' }];
-      const assinatura = `mnt:immediate:${[furtado.id, emFalha.id].sort().join(',')}`;
+      const assinaturas = [furtado.id, emFalha.id].map((id) => `mnt:immediate:${id}`);
 
       const res = await call('POST', '/previsoes/aplicar', { previsaoId: 'collapse:teste', recomendacao: 'Abrir ocorrência e acionar a equipe técnica', acoes });
       expect(res.status).toBe(200);
@@ -333,7 +333,7 @@ describe('API + SQLite', () => {
 
       // Persistido: estado, ocorrências, auditoria e a marca de aplicada (sobrevive a recarregar o painel).
       const depois = (await call('GET', '/estado')).data;
-      expect(depois.acoesAplicadas).toContain(assinatura);
+      expect(depois.acoesAplicadas).toEqual(expect.arrayContaining(assinaturas));
       expect(depois.equipment.find((e: Equipment) => e.id === emFalha.id).maintenance.priority).toBe('immediate');
       expect((await call('GET', '/ocorrencias')).data).toHaveLength(2);
       const acoesAuditadas = (await call('GET', '/auditoria')).data.map((a: { acao: string }) => a.acao);
@@ -347,6 +347,20 @@ describe('API + SQLite', () => {
       const ruim = await call('POST', '/previsoes/aplicar', { previsaoId: 'x', acoes: [{ kind: 'maintenance', equipmentIds: ['NAO-EXISTE'], priority: 'immediate', nextDate: 'ontem' }] });
       expect(ruim.status).toBe(400);
       expect(ruim.data.detalhes).toEqual(['acoes[0]: equipamento NAO-EXISTE não encontrado', 'acoes[0]: nextDate deve ser AAAA-MM-DD']);
+    });
+
+    it('pedido de reforço à escala só registra (auditoria e marca de aplicada), sem mexer no estado', async () => {
+      const antes = (await call('GET', '/estado')).data;
+      const acoes = [{ kind: 'request_staff', neighborhood: antes.agents[0].neighborhood, count: 2, date: '2026-10-27' }];
+      const res = await call('POST', '/previsoes/aplicar', { previsaoId: 'staff:teste', recomendacao: 'Solicitar 2 agente(s) extra(s) à escala', acoes });
+      expect(res.status).toBe(200);
+      expect(res.data.ocorrencias).toEqual([]);
+      expect(res.data.agents).toEqual(antes.agents);
+      expect(res.data.acoesAplicadas).toContain(`req:${acoes[0].neighborhood}:2:2026-10-27`);
+
+      const ruim = await call('POST', '/previsoes/aplicar', { previsaoId: 'x', acoes: [{ kind: 'request_staff', neighborhood: 'Atlântida', count: 0, date: 'hoje' }] });
+      expect(ruim.status).toBe(400);
+      expect(ruim.data.detalhes).toHaveLength(3);
     });
 
     it('busca nos manuais pela API', async () => {
