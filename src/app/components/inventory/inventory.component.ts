@@ -34,7 +34,7 @@ import {
 } from '../../models/fogo.models';
 import { CityStateService } from '../../services/city-state.service';
 import { UiStateService } from '../../services/ui-state.service';
-import { CITY_MAP, CITY_NAME } from '../../data/city-map';
+import { CITY_MAP, CITY_NAME, RoadPick } from '../../data/city-map';
 
 type CustomValue = string | number | boolean | null;
 
@@ -546,7 +546,7 @@ export class InventoryComponent implements OnInit {
 
     if (request.mode === 'create') {
       this.autofillHint.set(!!request.hintAutofill);
-      if (request.kind === 'equipment') this.openEquipment(null);
+      if (request.kind === 'equipment') this.openEquipment(null, request.at);
       else this.openAgent(null);
       return;
     }
@@ -585,7 +585,8 @@ export class InventoryComponent implements OnInit {
   // Equipamentos
   // ---------------------------------------------------------------------------
 
-  openEquipment(item: Equipment | null): void {
+  /** `at`: ponto clicado numa via do mapa; endereço e coordenadas já vêm preenchidos. */
+  openEquipment(item: Equipment | null, at?: RoadPick): void {
     if (item) {
       this.equipmentDraft = {
         id: item.id,
@@ -624,6 +625,17 @@ export class InventoryComponent implements OnInit {
       },
       custom: { ...(defaultCustomProperties('radar') as Record<string, CustomValue>) },
     };
+    if (at) {
+      this.equipmentDraft.location = {
+        cep: `${at.cepPrefix}-000`,
+        neighborhood: at.neighborhood,
+        cityUf: CITY_UF,
+        street: at.street,
+        reference: at.kmMarker ?? '',
+        lat: at.lat,
+        lng: at.lng,
+      };
+    }
   }
 
   autofillEquipment(): void {

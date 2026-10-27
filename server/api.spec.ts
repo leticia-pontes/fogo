@@ -5,7 +5,8 @@ import { join } from 'node:path';
 import type { Server } from 'node:http';
 import { buildMockAgents, buildMockEquipment } from '../src/app/data/mock-data';
 import type { Agent, Equipment } from '../src/app/models/fogo.models';
-import { createApp } from './app';
+import { createApp, listarRotas } from './app';
+import { OPENAPI } from './openapi';
 
 describe('API + SQLite', () => {
   let dir: string;
@@ -152,5 +153,14 @@ describe('API + SQLite', () => {
     expect(recs[0].ganho).toBeGreaterThanOrEqual(recs[2].ganho);
     expect((await call('POST', '/simulacao', { acao: { tipo: 'X' } })).status).toBe(400);
     expect((await call('POST', '/simulacao', { acao: { tipo: 'FALHA_EQUIPAMENTO', equipamentoId: 'nada' } })).status).toBe(400);
+  });
+
+  it('documenta todas as rotas no OpenAPI e serve o Swagger UI', async () => {
+    const documentadas = Object.entries(OPENAPI.paths).flatMap(([path, ops]) => Object.keys(ops).map((m) => `${m.toUpperCase()} ${path}`));
+    expect(documentadas.sort()).toEqual(listarRotas().filter((r) => r !== 'GET /api/openapi.json').sort());
+    expect((await call('GET', '/openapi.json')).data.openapi).toBe('3.0.3');
+    const docs = await fetch(base + '/docs');
+    expect(docs.headers.get('content-type')).toContain('text/html');
+    expect(await docs.text()).toContain('swagger-ui');
   });
 });

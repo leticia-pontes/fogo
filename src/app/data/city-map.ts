@@ -384,6 +384,46 @@ export function districtSpots(districtIndex: number, count: number): RoadSpot[] 
   return spots;
 }
 
+export interface RoadPick extends RoadSpot {
+  neighborhood: string;
+  cepPrefix: string;
+}
+
+/**
+ * Ponto da via mais próxima de (lat, lng), dentro de `maxKm`, já com bairro e quilometragem.
+ * Usado ao clicar no mapa para cadastrar um equipamento ali. Fora da cidade ou longe de vias: null.
+ */
+export function pointOnRoad(lat: number, lng: number, maxKm = 0.08): RoadPick | null {
+  const q: Km = [(lng - LNG0) * KM_PER_DEG_LNG, (lat - LAT0) * KM_PER_DEG_LAT];
+  let best: { p: Km; d: number; road: RoadGeometry; dist: number } | null = null;
+  for (const road of ROADS_KM) {
+    let dist = 0;
+    for (let i = 1; i < road.km.length; i++) {
+      const a = road.km[i - 1];
+      const b = road.km[i];
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      const t = len ? Math.max(0, Math.min(1, ((q[0] - a[0]) * (b[0] - a[0]) + (q[1] - a[1]) * (b[1] - a[1])) / len ** 2)) : 0;
+      const p: Km = [a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])];
+      const d = Math.hypot(p[0] - q[0], p[1] - q[1]);
+      if (!best || d < best.d) best = { p, d, road, dist: dist + t * len };
+      dist += len;
+    }
+  }
+  if (!best || best.d > maxKm) return null;
+  const { p, road, dist } = best;
+  const index = DISTRICT_POLYGONS_KM.findIndex((poly) => insidePolygon(p, poly));
+  if (index < 0) return null;
+  const [pLat, pLng] = toLatLng(p);
+  return {
+    lat: pLat,
+    lng: pLng,
+    street: road.name,
+    kmMarker: road.kind === 'highway' ? `KM ${Math.round(8 + dist)}` : undefined,
+    neighborhood: DISTRICT_SEEDS[index].name,
+    cepPrefix: DISTRICT_SEEDS[index].cepPrefix,
+  };
+}
+
 // -----------------------------------------------------------------------------
 // Trechos de via por bairro (deslocamento da telemetria e teste de carga)
 // -----------------------------------------------------------------------------

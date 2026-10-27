@@ -1,10 +1,12 @@
 # F.O.G.O. – Ferramenta Onisciente de Gestão e Operações
 
+> *"Bom dia, gestor. A cidade continua de pé. Por enquanto."* – PROMETHEUS, no primeiro boletim do dia
+
 Solução para a **Etapa Bônus do DSIN Coder Challenge (Protocolo PROMETHEUS)**: painel em **Angular 21** (standalone + Signals), **Tailwind CSS** e **Leaflet**, com uma API em **Node.js** gravando num banco **SQLite**.
 
-Roda sem chaves de API, sem servidor de mapas e sem instalar banco: o SQLite é um arquivo único (`data/fogo.db`), criado e populado sozinho na primeira execução. Os dados de exemplo cobrem 10 tipos de equipamento (há ainda o tipo **Outro**, para cadastros livres), as 6 situações e os 3 tipos de agente.
+A operação acontece em **Nova Prometeia**, uma cidade fictícia desenhada em vetor pelo próprio Leaflet: contorno orgânico, 6 bairros, o Rio Brasa, parques, avenidas curvas e uma rodovia. Não há quadras nem prédios, para que o mapa destaque apenas o que importa à operação. Radares, câmeras, viaturas e agentes ficam sobre as vias; o gestor cadastra, monitora, prevê e decide. A PROMETHEUS comenta (com alguma ironia).
 
-A operação acontece em **Nova Prometeia**, uma cidade fictícia desenhada em vetor pelo próprio Leaflet: contorno orgânico, 6 bairros, o Rio Brasa, parques, avenidas curvas e uma rodovia. Não há quadras nem prédios, para que o mapa destaque apenas o que importa à operação.
+## Como rodar
 
 **Pré-requisitos:** Node.js ≥ 22.13 (testado com 24.x; usa o `node:sqlite` nativo) e npm ≥ 10. O agente de voz exige Chrome ou Edge.
 
@@ -16,23 +18,138 @@ npm test                # testes do painel e das regras (ng test) + testes da AP
 npm run serve           # build de produção servido pela própria API em http://localhost:3000
 ```
 
+| Endereço | O que é |
+| --- | --- |
+| `http://localhost:4200` | Painel (desenvolvimento, com `npm start`) |
+| `http://localhost:3000` | Painel de produção servido pela API, quando existe um build (`npm run serve`) |
+| `http://localhost:3000/api/docs` | Documentação interativa da API (Swagger UI) |
+| `http://localhost:3000/api/openapi.json` | Especificação OpenAPI 3 |
+
+Não é preciso instalar banco nem subir servidor de mapas: o SQLite é um arquivo único (`data/fogo.db`), criado e populado sozinho na primeira execução. Os dados de exemplo cobrem 10 tipos de equipamento (há ainda o tipo **Outro**, para cadastros livres), as 6 situações e os 3 tipos de agente.
+
 > Para voltar ao cenário inicial também dá para usar **Inventário → Restaurar dados de exemplo** ou **Simular Cenários → Restaurar Estado Inicial**: no painel conectado, os dois recriam o banco.
 
-### Roteiro de demonstração (a partir do banco recém-resetado: `npm run reset` e `npm start`)
+### Preciso de chave de API? Não.
 
-1. Abra o painel e clique em **Pular Calibração / Modo Livre** (ou siga a missão guiada de 3 passos). O cabeçalho mostra **Banco conectado**.
-2. **Simular Cenários → Falha de Energia (Entroncamento)**: faixa vermelha de cenário ativo, alertas críticos sobem, disponibilidade cai de 75% para 69,2% e a saúde do Entroncamento de 47 para 17.
-3. **Boletim da PROMETHEUS** (abaixo dos KPIs): o texto já reflete o apagão; **Ouvir** lê em voz alta.
-4. Aba **Simulador · ações**: as 3 próximas melhores ações. **Simular esta** mostra o ANTES × DEPOIS e destaca no mapa os itens afetados e as células de cobertura; **Aplicar esta ação** grava e audita.
-5. Aba **Rota de manutenção → Gerar rota**: linha numerada no mapa; **Concluir** em algumas paradas e o painel melhora (disponibilidade, saúde, risco, boletim).
-6. **Reverter cenário** (na faixa vermelha) desfaz só o que o cenário mudou.
+O sistema **não chama nenhum serviço de IA nem API externa** em tempo de execução, e **nenhuma variável de ambiente é obrigatória**. As únicas lidas são opcionais: `PORT` (padrão 3000) e `FOGO_DB` (caminho do banco).
 
-Outros recursos: **Pontos cegos** e **Raios de cobertura** no canto do mapa; **Simular telemetria em tempo real** (começa desligada; um evento a cada 3 s, gravado no histórico); **agente de voz** ("quantos alertas?", "qual o maior risco?"); os outros cenários (onda de furtos, degradação na Zona Norte, véspera de pico na Zona Sul).
+Se você tem um `.env` com uma chave do Gemini (`GOOGLE_GENERATIVE_AI_API_KEY`), ela é herança das primeiras versões: havia uma rota serverless (`api/prometheus-triage.ts`) que pedia ao Gemini um briefing tático. Ela foi removida e trocada por regras e templates determinísticos (veja [Boletim da PROMETHEUS](#boletim-da-prometheus)). Hoje nada lê esse arquivo, então ele pode ser apagado sem efeito. O `.env` está no `.gitignore` e nunca entra no pacote de entrega.
+
+As únicas peças "inteligentes" que dependem do ambiente são do próprio navegador: a **Web Speech API** (voz do agente PROMETHEUS), que funciona no Chrome e no Edge. O mapa é desenhado em vetor localmente. A internet só é usada para baixar as fontes (Google Fonts) e o Swagger UI (jsDelivr). Sem rede, tudo funciona, só com a fonte padrão e sem a página `/api/docs`.
+
+## O que o sistema faz
+
+Um dia típico do gestor em Nova Prometeia:
+
+1. **Cadastra a frota** no **Inventário**: equipamentos de 11 tipos (radar, câmera, balança, cancela, totem, veículos, patinetes, viaturas…), cada um com seus campos próprios (a câmera tem visão noturna, o radar tem limite de velocidade), e os agentes de trânsito, guardas municipais e policiais militares. Ou, mais rápido: **clica direto numa rua do mapa**, e o formulário já abre com via, bairro, CEP e coordenadas daquele ponto.
+2. **Acompanha a cidade** na **Central de Operações**: mapa com tudo plotado e colorido por situação, KPIs, alertas críticos, saúde de cada bairro e um boletim falado da PROMETHEUS. Liga a telemetria e assiste equipamentos falhando e viaturas circulando.
+3. **Antecipa problemas** na **Cidade Preditiva**: risco de colapso viário, falha em lote de um fabricante e falta de efetivo no pico, sempre com o que foi previsto, os dados usados e um botão para aplicar a recomendação.
+4. **Testa decisões antes de tomá-las** no **Simulador**: "e se esta câmera cair?", "e se eu mover 3 agentes para a Orla?". Vê o ANTES × DEPOIS, as 3 próximas melhores ações e só então aplica, com auditoria.
+5. **Planeja o dia da equipe técnica** com a **Rota de manutenção**: as paradas críticas primeiro, depois as mais próximas.
+6. **Treina para o pior** com os **Cenários de crise** (apagão, onda de furtos, degradação, véspera de pico) e depois reverte tudo com um clique.
+
+## Obrigatório × diferencial
+
+O que o desafio pede e o que foi além dele.
+
+### Requisitos do desafio (básico)
+
+| Parte | Requisito | Onde está |
+| --- | --- | --- |
+| 1 – Inventário | Cadastro de equipamentos com identificação, localização (CEP, rua, bairro, referência, coordenadas), situação e manutenção | Inventário → drawer de cadastro |
+| 1 – Inventário | Propriedades específicas por tipo de equipamento | Formulário dinâmico (`CUSTOM_FIELDS`) |
+| 1 – Inventário | Cadastro de agentes (matrícula, função, órgão, situação, posição) | Inventário → aba de agentes |
+| 2 – Central | Mapa interativo com ícone por tipo e cor por situação, detalhes ao clicar | Central de Operações |
+| 2 – Central | KPIs: total, operacionais × indisponíveis, disponibilidade, agentes ativos | Faixa de KPIs |
+| 2 – Central | Filtros por tipo, situação, bairro e órgão | Barra de filtros (valem para mapa, KPIs e alertas) |
+| 2 – Central | Destaque de manutenção imediata e preventiva vencendo | Alertas |
+| 2 – Central | Painel de alertas críticos | Alertas (furto, falha, manutenção, agente sem atividade) |
+| 2 – Central | Visão consolidada por região (coroplético) | Bairros pintados + cards de região |
+| 3 – Preditiva | Previsões com as três respostas: o que é previsto, com base em quê, qual decisão tomar | Cidade Preditiva (3 tipos de previsão) |
+| Entrega | Documentação e menção às IAs usadas | Este README |
+
+### Diferenciais (extras)
+
+O enunciado avisa que *"não será sobre quem usou mais tecnologia, mais IA ou mais linhas de código"*. Por isso, cada extra só entrou se respondesse a uma das perguntas do próprio desafio ou a um dos critérios de avaliação (efetividade, desempenho, experiência de uso, qualidade técnica, criatividade). O critério foi simples: se o extra não ajuda o gestor a **perceber**, **antecipar** ou **decidir**, ele ficou de fora.
+
+| Extra | Por que foi implementado | Como ajuda a resolver o problema |
+| --- | --- | --- |
+| **Cadastro pelo mapa** (clicar numa via preenche endereço e coordenadas) | A Parte 1 pede CEP, bairro, cidade/UF, rua, referência **e** coordenadas GPS. Digitar latitude e longitude à mão é o jeito mais fácil de errar um cadastro | O equipamento nasce exatamente sobre a via, no bairro certo, sem erro de digitação. Coordenada errada estragaria tudo o que vem depois: mapa, cobertura, risco e rota |
+| **API Node + banco SQLite** com histórico, alertas e auditoria (quem, quando, antes → depois) | A Parte 3 fala em *"dados históricos"*, e a PROMETHEUS precisa de memória para enxergar tendência. Um painel que esquece tudo no F5 não tem histórico nenhum | O estado persiste entre reinícios, cada mudança de situação vira evento consultável e cada decisão tem autor e rastro. É a base que torna as previsões e a auditoria possíveis |
+| **Swagger UI** em `/api/docs` | O FAQ aceita *"apenas uma API"* como entrega e lembra que projeto que *"roda de primeira"* é avaliado *"com um sorriso no rosto"* | Quem avalia explora e testa toda a API pelo navegador, com exemplos prontos, sem Postman nem ler código |
+| **Telemetria em tempo real simulada** | A Parte 2 diz que a PROMETHEUS *"passará a receber continuamente informações"* e pede a cidade *"em tempo real"*. Sem dispositivos reais, era preciso simular o fluxo | Falhas, recuperações e veículos circulando pelas vias mostram o painel reagindo ao vivo: KPIs, alertas e boletim mudam sozinhos. Responde, na prática, a *"Se algo estiver acontecendo na cidade agora, PROMETHEUS conseguirá perceber?"* |
+| **Pontos cegos de cobertura** (grade de 250 m) | A visão por região mostra *o que* está quebrado, mas não *onde a cidade ficou sem olhos*. Uma câmera parada no meio de três radares importa menos que a única câmera de uma avenida | Mede o % da cidade vigiado por algum equipamento ou agente e entra no índice de risco. A pergunta deixa de ser "quantos caíram?" e passa a ser "o que deixamos de ver?" |
+| **Simulador "E se…?" + próxima melhor ação** | A Parte 3 pede *"recomendações para apoiar a tomada de decisão"* e diz que o valor está em *"transformar uma previsão em algo realmente útil"*. Uma previsão sem ação sugerida deixa o gestor sozinho no "e agora?" | O gestor vê o ANTES × DEPOIS de uma decisão **antes** de tomá-la, e o sistema ranqueia as 3 ações de maior ganho com justificativa e confiança. Previsão vira decisão, e decisão vira resultado medido |
+| **Rota de manutenção** ponderada pela criticidade | A Parte 2 pede para *destacar* manutenções imediatas e próximas. Destacar 15 alertas não diz à equipe técnica por onde começar | Transforma a lista de alertas num roteiro de trabalho: críticos primeiro, depois os mais próximos, com distância e tempo estimados. Concluir uma parada atualiza a cidade inteira |
+| **Cenários de crise reversíveis** (apagão, furtos, degradação, véspera de pico) | A Parte 3 pede para *"agir antes que um problema aconteça"*. Para treinar a resposta é preciso provocar o problema, sem estragar os dados reais | O gestor (e quem avalia) vê em segundos como a cidade e as recomendações reagem a uma crise, e depois desfaz só o que o cenário mudou |
+| **Boletim da PROMETHEUS** + **agente de voz** | A Parte 2 pede para entender a situação *"rapidamente"*. Um gestor numa sala de controle nem sempre tem tempo de ler oito cards | O boletim resume em um parágrafo o que exige atenção agora e qual a próxima melhor ação, e pode ser ouvido. Usa templates com os números reais: nada é inventado, e o texto é sempre o mesmo para o mesmo estado |
+| **Mapa incremental + agrupamento** (até 5.000 equipamentos) | Desempenho é critério explícito de avaliação, e uma cidade real tem milhares de dispositivos, não 54 | Atualizar só o que mudou cortou o script por ciclo de 216 ms para 39 ms, e o agrupamento mantém o mapa legível com frota grande (ver [Teste de carga](#teste-de-carga)) |
+| **Missão guiada de 3 passos** | Experiência de uso é critério de avaliação, e a comissão vai testar *"tanta coisa"* | Em três passos, quem nunca viu o sistema descobre onde está cada parte. Quem já conhece pula direto para o modo livre |
+| **Modo offline** | Se a API não subir (ou num deploy estático), o painel não pode virar uma tela branca | Tudo funciona no navegador com as mesmas funções puras, só sem banco, histórico e auditoria |
+| **82 testes automatizados** | Qualidade técnica e *"demonstrar entendimento daquilo que a IA construiu"* | As regras (simulação, cobertura, rota, boletim, cenários), a API e a persistência são verificadas a cada `npm test`. As fórmulas não dependem de confiança, dependem de teste |
+
+## Tecnologias e por quê
+
+| Camada | Escolha | Motivo |
+| --- | --- | --- |
+| Front-end | **Angular 21** (standalone + Signals) | Estado reativo fino: um filtro muda e só o que depende dele é recalculado (mapa, KPIs, alertas), sem biblioteca extra de estado |
+| Estilo | **Tailwind CSS** | Visual de central de operações consistente, sem folha de estilo gigante |
+| Mapa | **Leaflet** + `leaflet.markercluster` | Leve, sem chave nem conta, e desenha a cidade fictícia em vetor; o agrupamento cuida da alta densidade |
+| Ícones | **Lucide** | Um ícone claro por tipo de equipamento |
+| API | **Node.js** com `node:http` puro | São ~30 rotas simples: um roteador de 10 linhas basta, sem framework |
+| Banco | **SQLite** via `node:sqlite` (nativo do Node 22+) | Arquivo único, zero instalação, nada nativo para compilar |
+| Regras | **TypeScript puro** em `src/app/core/` | As mesmas funções rodam no navegador e no servidor, e são testadas sem tela nem banco |
+| Testes | **Vitest** | Rápido, e o mesmo runner do `ng test` |
+| Voz | **Web Speech API** | Fala e escuta nativas do navegador, sem serviço externo |
+| Docs da API | **OpenAPI 3 + Swagger UI** (via CDN) | Documentação navegável sem nova dependência |
+
+A stack sugerida no desafio citava PostgreSQL/PostGIS e modelos de ML. Para uma solução que precisa rodar com `npm install && npm start` em qualquer máquina, SQLite e heurísticas explicáveis entregam o mesmo valor demonstrativo sem infraestrutura, e toda fórmula está documentada abaixo.
+
+## Caso de uso: apagão no Entroncamento
+
+> **Situação:** sexta-feira, véspera do pico. Cai a energia no Entroncamento. A PROMETHEUS já percebeu; o gestor precisa reagir.
+
+Partindo de um banco limpo (`npm run reset` e depois `npm start`). Os números abaixo valem para a seed padrão.
+
+| # | Passo | Resultado esperado |
+| --- | --- | --- |
+| 1 | Abra `http://localhost:4200` e clique em **Pular Calibração / Modo Livre** (ou siga a missão guiada) | Cabeçalho mostra **Banco conectado**; disponibilidade **75%**; Entroncamento com saúde **47** |
+| 2 | **Simular Cenários → Falha de Energia (Entroncamento)** | Faixa vermelha de cenário ativo; disponibilidade **75% → 69,2%**; saúde do Entroncamento **47 → 17**; alertas críticos **7 → 10** |
+| 3 | Leia o **Boletim da PROMETHEUS** (abaixo dos KPIs) e clique em **Ouvir** | O texto cita o apagão e o Entroncamento entre as regiões que exigem atenção; a voz lê o boletim |
+| 4 | Aba **Simulador · ações** | Top 3: **Executar rota de manutenção (6 paradas críticas, ~5,7 km, ~134 min)**, realocar agentes do Centro Histórico para a Orla do Rio e para o Entroncamento |
+| 5 | **Simular esta** na primeira | ANTES × DEPOIS com as diferenças ordenadas; itens afetados com halo laranja no mapa. **Nada é gravado** |
+| 6 | Aba **Rota de manutenção → Gerar rota**, depois **Concluir** em algumas paradas | Linha numerada no mapa; a cada parada, disponibilidade, saúde, risco e boletim melhoram; **Auditoria** registra `CONCLUIR_PARADA_ROTA` |
+| 7 | **Reverter cenário** (na faixa vermelha) | Só o que o cenário mudou é desfeito; o que você consertou ou criou depois continua |
+
+### O mesmo teste pela API (Swagger)
+
+Em `http://localhost:3000/api/docs`, com **Try it out**:
+
+| # | Chamada | Resultado esperado |
+| --- | --- | --- |
+| 1 | `POST /api/reset` | 200 com o estado inicial (54 equipamentos, 19 agentes) |
+| 2 | `GET /api/analise` | `indicadores` com disponibilidade 75; Entroncamento com `health: 47` em `saude` |
+| 3 | `POST /api/cenarios/power_outage` | 200 com `label: "Falha de energia em Entroncamento"` |
+| 4 | `GET /api/analise` | Disponibilidade 69,2; Entroncamento com `health: 17` |
+| 5 | `GET /api/recomendacoes` | 3 recomendações; a primeira é a rota de manutenção com 6 paradas |
+| 6 | `POST /api/simulacao` com `{ "acao": { "tipo": "DESATIVAR_EQUIPAMENTO", "equipamentoId": "<id de /api/equipamentos>" } }` | ANTES × DEPOIS; `GET /api/auditoria` continua igual (simular não grava) |
+| 7 | `POST /api/equipamentos` com o exemplo pronto do Swagger | **201** com o equipamento criado |
+| 8 | Repetir o mesmo `POST` | **409** "Equipamento … já existe" |
+| 9 | `POST /api/equipamentos` com `{ "id": "x" }` | **400** "Dados inválidos" e a lista de campos em `detalhes` |
+| 10 | `PATCH /api/equipamentos/{id}/situacao` com `{ "situacao": "stolen" }` | `GET /api/alertas` traz o alerta crítico **"Furto detectado · <número de série>"** |
+| 11 | `GET /api/auditoria` | `EDITAR_EQUIPAMENTO`, `CRIAR_EQUIPAMENTO` e `APLICAR_CENARIO`, com autor `gestor` (ou o valor de `x-usuario`) |
+| 12 | `POST /api/cenarios/reverter` | Estado sem o apagão; repetir dá **409** "Nenhum cenário ativo" |
+
+Os mesmos comportamentos (cenário aplicado e revertido, simulação que não grava, validação, 409 por id repetido, auditoria) também são verificados automaticamente em `server/api.spec.ts` (`npm run test:server`).
+
+### Outros recursos para explorar
+
+**clique numa rua** para cadastrar um equipamento ali; **Pontos cegos** e **Raios de cobertura** no canto do mapa; **Simular telemetria em tempo real** (começa desligada; um evento a cada 3 s, gravado no histórico); **agente de voz** ("quantos alertas?", "qual o maior risco?"); os outros cenários (onda de furtos, degradação na Zona Norte, véspera de pico na Zona Sul); e `?stress=2000` na URL para ver o mapa com uma frota enorme.
 
 ### Pacote de entrega
 
 ```bash
-git archive -o fogo.zip HEAD   # só arquivos versionados, sem node_modules/dist/.angular
+git archive -o fogo.zip HEAD   # só arquivos versionados, sem node_modules/dist/.angular/.env
 ```
 
 ---
@@ -55,6 +172,7 @@ git archive -o fogo.zip HEAD   # só arquivos versionados, sem node_modules/dist
 | `POST /api/sync` | gravação em lote vinda do painel |
 | `POST /api/cenarios/:id`, `POST /api/cenarios/reverter` | aplica / reverte cenário de crise |
 | `POST /api/reset` | recria o banco com a seed |
+| `GET /api/docs`, `GET /api/openapi.json` | Swagger UI e especificação OpenAPI |
 | `GET /api/alertas`, `GET /api/eventos`, `GET /api/auditoria` | alertas abertos, histórico de situação, auditoria |
 
 ### Seed enxuta
@@ -75,6 +193,7 @@ npm run reset                             # volta ao estado limpo
 server/
 ├── main.ts                     # Sobe a API (porta 3000) e, se houver build, serve o painel
 ├── app.ts                      # Rotas da API
+├── openapi.ts                  # Especificação OpenAPI + página do Swagger UI (/api/docs)
 ├── db.ts                       # Esquema SQLite e abertura do arquivo
 ├── repository.ts               # Repositório: única camada que lê/grava o banco
 ├── seed.ts, reset.ts, synthetic.ts
@@ -117,6 +236,7 @@ src/app/
 
 - Listagem unificada de **equipamentos** e **agentes**, com busca e filtros por tipo e situação.
 - Drawer lateral para **cadastrar, editar e excluir**. Os campos específicos mudam conforme o tipo escolhido; o tipo **Outro** pede uma descrição livre.
+- **Cadastro a partir do mapa**: clicar numa rua, avenida ou rodovia da Central abre este mesmo drawer com via, bairro, CEP, cidade/UF e coordenadas preenchidos (detalhes na [Parte 2](#parte-2--central-de-operações)). Só falta escolher o tipo e informar a referência.
 - Validações: campos obrigatórios, formato do CEP, número de série e matrícula únicos, e coordenadas válidas e dentro dos limites da cidade.
 - A situação pode ser alterada direto na listagem. Toda alteração atualiza o mapa, os KPIs, os alertas e as previsões.
 
@@ -125,6 +245,13 @@ src/app/
 - **KPIs**: total de equipamentos, operacionais, indisponíveis, disponibilidade (operacionais ÷ instalados) e agentes ativos.
 - **Filtros** por tipo, situação, bairro e órgão responsável. Eles valem para o mapa, os KPIs, os alertas e a visão por região.
 - **Mapa**: equipamentos em círculos com ícone do tipo; agentes em quadrados (AT/GM/PM). Cores das situações: verde = operacional, amarelo = manutenção, vermelho = mau funcionamento, roxo com borda tracejada = furtado, cinza-escuro = desativado, cinza-claro com borda pontilhada = não instalado. A **legenda** no canto do mapa lista situações, tipos e agentes; clicar numa situação ou tipo aplica o filtro. Os itens ficam sobre as vias, e o endereço de cada um usa o nome da via onde está.
+- **Cadastro pelo mapa**: passar o mouse numa rua, avenida ou rodovia mostra o nome dela e a dica "Clique para cadastrar um equipamento aqui". O clique abre o Inventário com o formulário de novo equipamento já preenchido:
+  - **via, bairro e cidade/UF** do ponto clicado;
+  - **coordenadas** encaixadas no eixo da via mais próxima (até ~80 m do clique), para o equipamento não nascer no meio de uma quadra;
+  - **CEP** com o prefixo do bairro (`13904-000`), o mesmo padrão do cadastro manual, já que a cidade fictícia não tem CEP por rua;
+  - **referência**: em rodovia vem a quilometragem ("KM 12"); em ruas e avenidas fica para o gestor ("Oposto ao nº 181", "Em frente à Prefeitura").
+
+  Rio, lago e parques mostram o nome, mas não abrem o cadastro, e cliques fora dos bairros são ignorados. O encaixe é feito por `pointOnRoad` (`data/city-map.ts`), que projeta o clique em cada trecho de via e devolve o ponto mais próximo com bairro e KM.
 - **Painel de detalhes** ao clicar num marcador ou alerta: endereço com referência, manutenção e propriedades específicas.
 - **Alertas**: furtos, falhas graves, manutenção imediata, manutenção vencida ou prevista para os próximos 7 dias, e **agente sem atividade** (fora de turno em bairro cujo efetivo em serviço está abaixo do necessário no pico).
 - **Visão por região**: Normal (< 15%), Atenção (15–30%) ou Crítico (≥ 30%), conforme a proporção de equipamentos indisponíveis no bairro. No mapa, cada bairro é pintado com a cor correspondente (mapa coroplético).
@@ -169,7 +296,7 @@ Rotas: `POST /api/simulacao` (`{ acao }`, não grava nada), `GET /api/recomendac
 
 ### Índice de saúde por bairro (0–100)
 
-```
+```txt
 saúde = 40 × disponibilidade + 20 × manutenção + 15 × alertas + 25 × efetivo
 ```
 
@@ -182,7 +309,7 @@ saúde = 40 × disponibilidade + 20 × manutenção + 15 × alertas + 25 × efet
 
 ### Risco por bairro (0–100)
 
-```
+```txt
 risco = escore de colapso viário (Parte 3) + 20 × fração do bairro em ponto cego
 escore de colapso = 15 × fiscalização indisponível (máx. 45) + fluxo no pico relativo (máx. 30) + 10 × déficit de agentes (máx. 25)
 ```
@@ -239,18 +366,19 @@ Card no topo da Central, logo abaixo dos KPIs: **Atualizar boletim**, **Copiar**
 7. maior risco para o próximo pico (janela histórica do bairro);
 8. a próxima melhor ação recomendada, com o impacto estimado.
 
-Sem nada crítico, o texto diz "Tudo sob controle". **Não usa LLM**: o mesmo estado e horário geram sempre o mesmo texto e nenhum número é inventado. (Não há modo opcional com LLM: preferi não depender de chave nem arriscar números diferentes na demonstração.) Rota: `GET /api/boletim`.
+Sem nada crítico, o texto diz "Tudo sob controle". **Não usa LLM**: o mesmo estado e horário geram sempre o mesmo texto e nenhum número é inventado. As primeiras versões chamavam o Gemini para um briefing tático; troquei por templates para não depender de chave, de rede nem arriscar números diferentes no meio da demonstração. A ironia continua, só que agora é determinística. Rota: `GET /api/boletim`.
 
 ## Testes
 
-`npm test` roda **78 testes** (Vitest): 69 do painel e das regras via `ng test` e 9 da API/SQLite (`npm run test:server`).
+`npm test` roda **82 testes** (Vitest): 72 do painel e das regras via `ng test` e 10 da API/SQLite (`npm run test:server`).
 
 - `core/simulation.spec.ts`: simular não altera o estado original; desativar nunca aumenta disponibilidade nem cobertura; realocar tira efetivo da origem e soma no destino; antecipar manutenção nunca piora a saúde; diferenças ordenadas; recomendações ordenadas por ganho, determinísticas e a primeira realmente melhora os indicadores; cobertura (um equipamento isolado cobre só as células dentro do raio, desativá-lo reduz a cobertura, dois sobrepostos não perdem cobertura quando um cai, agente fora de turno não cobre).
 - `core/maintenance-route.spec.ts`: imediatas antes das de menor criticidade, sem paradas repetidas, distância total = soma dos trechos, lista vazia sem erro, filtros e furtados fora.
 - `core/bulletin.spec.ts`: o boletim cita os números corretos, muda quando o estado muda e, sem alertas, diz "tudo sob controle".
 - `core/scenarios.spec.ts`: cada cenário altera o estado sem mutar a entrada e é reproduzível; reverter devolve exatamente o estado anterior e preserva itens criados depois.
-- `server/api.spec.ts`: banco criado e populado na primeira execução e não repopulado depois; criar, consultar, editar e desativar equipamento e agente persistem entre reinícios; validação das propriedades por tipo; `sync` com histórico e alertas; cenário persistido e revertido; simulação não grava e aplicar grava e audita; reset restaura o estado inicial.
-- `city-state.service.spec.ts`, `prediction.service.spec.ts`, `marker-sync.spec.ts`, `city-map.spec.ts`: KPIs, filtros, alertas, previsões da Parte 3, mapa incremental e telemetria (testes anteriores, mantidos).
+- `server/api.spec.ts`: banco criado e populado na primeira execução e não repopulado depois; criar, consultar, editar e desativar equipamento e agente persistem entre reinícios; validação das propriedades por tipo; `sync` com histórico e alertas; cenário persistido e revertido; simulação não grava e aplicar grava e audita; reset restaura o estado inicial; toda rota da API está documentada no OpenAPI e o Swagger UI responde.
+- `city-map.spec.ts`: telemetria anda sempre sobre as vias do bairro; o clique numa via encaixa o ponto no eixo da via certa, com bairro e CEP do bairro, traz o KM em rodovia e não devolve nada fora da cidade.
+- `city-state.service.spec.ts`, `prediction.service.spec.ts`, `marker-sync.spec.ts`: KPIs, filtros, alertas, previsões da Parte 3 e mapa incremental (testes anteriores, mantidos).
 
 ## Teste de carga
 
@@ -283,5 +411,4 @@ Com o agrupamento, a mesma frota aparece como 85 ícones (58 grupos, 24 agentes 
 
 O código foi desenvolvido com apoio de assistentes de IA: **Claude** (Claude Code) e **Gemini** (Antigravity). Na etapa final (cenários com reversão, banco SQLite e API, simulador, próxima melhor ação, pontos cegos, rota de manutenção e boletim), o Claude Code (modelo Claude Opus 5.5) escreveu o código e os testes a partir de uma especificação detalhada do autor, que revisou as decisões. As pastas `.agents/` e `.gemini/` guardam a especificação usada como contexto pelas IAs e ficam fora do pacote de entrega (`.gitattributes`).
 
-A aplicação **não chama nenhuma IA em tempo de execução**: previsões, recomendações e o boletim são regras e templates explicáveis, com as fórmulas descritas neste README.
-
+A aplicação **não chama nenhuma IA em tempo de execução** e não precisa de chave de API: previsões, recomendações e o boletim são regras e templates explicáveis, com as fórmulas descritas neste README. Em caso de dúvidas, veja [Preciso de chave de API?](#preciso-de-chave-de-api-não).

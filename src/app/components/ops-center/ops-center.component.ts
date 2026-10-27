@@ -14,7 +14,7 @@ import {
 import { isPlatformBrowser } from '@angular/common';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import type * as Leaflet from 'leaflet';
-import { CITY_MAP } from '../../data/city-map';
+import { CITY_MAP, pointOnRoad } from '../../data/city-map';
 import { NEIGHBORHOODS } from '../../data/mock-data';
 import {
   AGENCIES,
@@ -710,6 +710,7 @@ export class OpsCenterComponent implements AfterViewInit, OnDestroy {
         .bindTooltip(name, { sticky: true })
         .addTo(map);
       scaled.push({ line, base });
+      return line;
     };
     addLine(CITY_MAP.river.path, '#1c3442', 10, CITY_MAP.river.name);
     L.polygon(CITY_MAP.lake.polygon, { pane: 'features', stroke: false, fillColor: '#1c3442', fillOpacity: 1 })
@@ -717,7 +718,13 @@ export class OpsCenterComponent implements AfterViewInit, OnDestroy {
       .addTo(map);
     const roadStyle = { highway: ['#4d575b', 5], avenue: ['#3b474c', 3.5], street: ['#2e393d', 1.8] } as const;
     for (const kind of ['street', 'avenue', 'highway'] as const) {
-      for (const road of CITY_MAP.roads.filter((r) => r.kind === kind)) addLine(road.path, roadStyle[kind][0], roadStyle[kind][1], road.name);
+      for (const road of CITY_MAP.roads.filter((r) => r.kind === kind)) {
+        // Clique na via: abre o cadastro de equipamento já com endereço e coordenadas do ponto.
+        addLine(road.path, roadStyle[kind][0], roadStyle[kind][1], `${road.name}<br><span class="text-[10px] opacity-70">Clique para cadastrar um equipamento aqui</span>`).on('click', (e: Leaflet.LeafletMouseEvent) => {
+          const at = pointOnRoad(e.latlng.lat, e.latlng.lng);
+          if (at) this.ui.openInventory({ mode: 'create', kind: 'equipment', at });
+        });
+      }
     }
     const rescale = () => {
       const factor = Math.min(4, Math.max(0.5, 2 ** (map.getZoom() - 14)));

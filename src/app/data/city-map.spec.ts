@@ -1,4 +1,4 @@
-import { DISTRICTS, districtLanes, stepAlongRoad } from './city-map';
+import { CITY_MAP, DISTRICTS, districtLanes, pointOnRoad, stepAlongRoad } from './city-map';
 import { MAX_STRESS_EQUIPMENT, buildStressEquipment } from './mock-data';
 
 describe('vias e telemetria', () => {
@@ -40,5 +40,29 @@ describe('teste de carga', () => {
 
   it(`limita a ${MAX_STRESS_EQUIPMENT} equipamentos`, () => {
     expect(buildStressEquipment(MAX_STRESS_EQUIPMENT + 100)).toHaveLength(MAX_STRESS_EQUIPMENT);
+  });
+});
+
+describe('clique na via', () => {
+  it('encaixa o ponto na via mais próxima, com bairro e CEP do bairro', () => {
+    const lane = districtLanes(1).find((l) => l.points.length > 10)!;
+    const [lat, lng] = lane.points[5];
+    const pick = pointOnRoad(lat + 0.0002, lng)!; // ~20 m fora do eixo
+    expect(pick.street).toBe(lane.street);
+    expect(pick.neighborhood).toBe(DISTRICTS[1].name);
+    expect(pick.cepPrefix).toBe(DISTRICTS[1].cepPrefix);
+    expect(Math.abs(pick.lat - lat)).toBeLessThan(0.0005);
+  });
+
+  it('rodovia traz a quilometragem como referência', () => {
+    const highway = CITY_MAP.roads.find((r) => r.kind === 'highway')!;
+    const [lat, lng] = highway.path[Math.floor(highway.path.length / 2)];
+    const pick = pointOnRoad(lat, lng)!;
+    expect(pick.street).toBe(highway.name);
+    expect(pick.kmMarker).toMatch(/^KM \d+$/);
+  });
+
+  it('longe de qualquer via ou fora da cidade, não devolve ponto', () => {
+    expect(pointOnRoad(-22.9, -47.1)).toBeNull();
   });
 });

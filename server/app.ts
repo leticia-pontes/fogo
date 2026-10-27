@@ -13,6 +13,7 @@ import { SCENARIOS, ScenarioId, applyScenario, recordSnapshot, revertScenarios }
 import type { CityState } from '../src/app/core/state';
 import type { Agent, Equipment, EquipmentType } from '../src/app/models/fogo.models';
 import { DEFAULT_DB_FILE, deleteDatabaseFile, openDatabase } from './db';
+import { OPENAPI, SWAGGER_HTML } from './openapi';
 import { Origem, Repositorio } from './repository';
 import { popularSeed } from './seed';
 import { validarAgente, validarEquipamento } from './validation';
@@ -73,13 +74,18 @@ export interface Request {
 
 type Handler = (req: Request, ctx: Contexto) => unknown;
 
-const routes: { method: string; pattern: RegExp; keys: string[]; handler: Handler }[] = [];
+const routes: { method: string; path: string; pattern: RegExp; keys: string[]; handler: Handler }[] = [];
+
+/** Rotas registradas, no formato do OpenAPI ('GET /api/equipamentos/{id}'). */
+export function listarRotas(): string[] {
+  return routes.map((r) => `${r.method} ${r.path.replace(/:(\w+)/g, '{$1}')}`);
+}
 
 /** Registra uma rota no formato '/api/equipamentos/:id'. */
 export function route(method: string, path: string, handler: Handler): void {
   const keys: string[] = [];
   const pattern = new RegExp('^' + path.replace(/:(\w+)/g, (_, k) => (keys.push(k), '([^/]+)')) + '$');
-  routes.push({ method, pattern, keys, handler });
+  routes.push({ method, path, pattern, keys, handler });
 }
 
 // -----------------------------------------------------------------------------
@@ -87,6 +93,8 @@ export function route(method: string, path: string, handler: Handler): void {
 // -----------------------------------------------------------------------------
 
 route('GET', '/api/saude', () => ({ ok: true }));
+
+route('GET', '/api/openapi.json', () => OPENAPI);
 
 route('GET', '/api/estado', (_req, ctx) => ctx.estadoCompleto());
 
@@ -485,6 +493,10 @@ export function createApp(dbFile = DEFAULT_DB_FILE): { server: Server; ctx: Cont
       if (!url.pathname.startsWith('/api/')) {
         if (method === 'GET' && serveStatic(url.pathname, res)) return;
         throw new HttpError(404, 'Não encontrado');
+      }
+      if (method === 'GET' && /^\/api\/docs\/?$/.test(url.pathname)) {
+        res.writeHead(200, { 'content-type': MIME['.html'] });
+        return void res.end(SWAGGER_HTML);
       }
       for (const r of routes) {
         const match = r.method === method ? r.pattern.exec(url.pathname) : null;
