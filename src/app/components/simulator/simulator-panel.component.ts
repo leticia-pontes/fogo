@@ -8,7 +8,7 @@ import { CityStateService } from '../../services/city-state.service';
 import { SimulationService } from '../../services/simulation.service';
 
 /** Ações do formulário (a rota completa é simulada pela aba Rota ou por uma recomendação). */
-type ActionKind = Exclude<Acao['tipo'], 'EXECUTAR_ROTA_MANUTENCAO'>;
+type ActionKind = Exclude<Acao['tipo'], 'EXECUTAR_ROTA_MANUTENCAO' | 'DESPACHAR_AGENTE'>;
 
 const ACTION_LABELS: Record<ActionKind, string> = {
   FALHA_EQUIPAMENTO: 'Falha de equipamento',
@@ -164,7 +164,12 @@ const FIELD =
             </ul>
           </details>
 
-          <button type="button" class="btn-primary w-full" [disabled]="sim.busy()" (click)="apply(r.acao)">Aplicar esta ação</button>
+          @if (r.acao.tipo === 'DESPACHAR_AGENTE') {
+            <!-- Despachar de fato passa pela ocorrência (guarda a origem do agente para o retorno). -->
+            <button type="button" class="btn-primary w-full" (click)="sim.panel.set('occurrences')">Voltar à ocorrência {{ r.acao.ocorrenciaId }} para despachar</button>
+          } @else {
+            <button type="button" class="btn-primary w-full" [disabled]="sim.busy()" (click)="apply(r.acao)">Aplicar esta ação</button>
+          }
         </section>
       }
 
@@ -282,7 +287,7 @@ export class SimulatorPanelComponent {
     // Ação vinda de fora (detalhe do equipamento, recomendação): preenche o formulário.
     effect(() => {
       const draft = this.sim.draft();
-      if (!draft || draft.tipo === 'EXECUTAR_ROTA_MANUTENCAO') return;
+      if (!draft || draft.tipo === 'EXECUTAR_ROTA_MANUTENCAO' || draft.tipo === 'DESPACHAR_AGENTE') return;
       this.kind.set(draft.tipo);
       if (draft.tipo === 'REALOCAR_AGENTES') {
         this.agentIds.set(new Set(draft.agentes));

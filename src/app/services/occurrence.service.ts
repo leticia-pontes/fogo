@@ -1,9 +1,10 @@
 import { Injectable, PLATFORM_ID, computed, effect, inject, signal, untracked } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
+import { Despacho, ResultadoDespacho, bloqueioDespacho, despachar, sugerirDespacho } from '../core/dispatch';
 import { Dossie, EventoSituacao, investigarOcorrencia } from '../core/investigation';
 import { Ocorrencia, TIPO_ALERTA_LABELS, TipoAlerta, abrirOcorrencia } from '../core/occurrences';
 import { MANUAIS } from '../data/manuals-index';
-import { api } from './api';
+import { ServerState, api } from './api';
 import { CityStateService } from './city-state.service';
 import { SimulationService } from './simulation.service';
 import { UiStateService } from './ui-state.service';
@@ -34,6 +35,23 @@ export class OccurrenceService {
   readonly highlighted = computed<ReadonlySet<string>>(() => {
     const dossie = this.selected()?.dossie as Dossie | null | undefined;
     return new Set(dossie ? [dossie.oQueAconteceu.equipamentoId, ...dossie.relacionados] : []);
+  });
+
+  /** Sugestões de despacho carregadas para a ocorrência selecionada. */
+  readonly dispatchSuggestions = signal<{ ocorrenciaId: string; resultado: ResultadoDespacho } | null>(null);
+  /** Linhas tracejadas no mapa: agente → local (sugestões, ou o despacho feito). */
+  readonly dispatchLines = computed(() => {
+    const o = this.selected();
+    if (!o) return [];
+    const eq = this.city.equipment().find((e) => e.id === o.equipamentoId);
+    const despacho = o.despacho as Despacho | null;
+    if (despacho) return [{ from: [despacho.origem.lat, despacho.origem.lng] as [number, number], to: [despacho.destino.lat, despacho.destino.lng] as [number, number], label: despacho.agenteNome, chosen: true }];
+    const sug = this.dispatchSuggestions();
+    if (!eq || sug?.ocorrenciaId !== o.id) return [];
+    return sug.resultado.sugestoes.map((x, i) => {
+      const a = this.city.agents().find((ag) => ag.id === x.agenteId);
+      return { from: [a?.lat ?? eq.location.lat, a?.lng ?? eq.location.lng] as [number, number], to: [eq.location.lat, eq.location.lng] as [number, number], label: `${i + 1}. ${x.nome} · ~${x.etaMin} min`, chosen: false };
+    });
   });
 
   /** Modo offline: mudanças de situação registradas no navegador (no online, vêm de eventos_situacao). */
@@ -144,6 +162,58 @@ export class OccurrenceService {
     } finally {
       this.busy.set(false);
     }
+  }
+
+  /** Top 3 agentes por ETA (online: GET /api/ocorrencias/:id/despacho; offline: mesma função pura). Não grava. */
+  async suggestDispatch(id: string): Promise<void> {
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      const resultado =
+        this.city.mode() === 'online'
+          ? await api<ResultadoDespacho>('GET', `/ocorrencias/${encodeURIComponent(id)}/despacho`)
+          : sugerirDespacho(this.city.snapshot(), this.find(id));
+      this.dispatchSuggestions.set({ ocorrenciaId: id, resultado });
+    } catch (err) {
+      this.error.set((err as Error).message);
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  async dispatch(id: string, agenteId: string): Promise<void> {
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      if (this.city.mode() === 'online') {
+        await this.city.serverAction<ServerState>(`/ocorrencias/${encodeURIComponent(id)}/despachar`, { agenteId });
+        await this.refresh();
+      } else {
+        const before = this.find(id);
+        const bloqueio = bloqueioDespacho(before);
+        if (bloqueio) throw new Error(bloqueio);
+        const { state, despacho } = despachar(this.city.snapshot(), before, agenteId, new Date());
+        this.city.replaceState(state);
+        this.saveLocal(this.list().map((o) => (o.id === id ? { ...o, despacho, status: 'despachada' } : o)));
+      }
+      this.dispatchSuggestions.set(null);
+      const despacho = this.selected()?.despacho as Despacho | undefined;
+      if (despacho) {
+        this.city.log(`${id}: ${despacho.agenteNome} despachado(a) para ${despacho.destino.bairro} (~${despacho.etaMin} min, estimativa)`, 'info', 'system');
+        this.ui.notify(`${despacho.agenteNome} a caminho · ETA estimado ~${despacho.etaMin} min.`, 'good');
+      }
+    } catch (err) {
+      this.error.set((err as Error).message);
+      this.ui.notify(`Não foi possível despachar: ${(err as Error).message}`, 'bad');
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  private find(id: string): Ocorrencia {
+    const o = this.list().find((x) => x.id === id);
+    if (!o) throw new Error(`Ocorrência ${id} não encontrada`);
+    return o;
   }
 
   hasOpen(equipamentoId: string, tipoAlerta: TipoAlerta): boolean {

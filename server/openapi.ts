@@ -139,7 +139,13 @@ export const OPENAPI = {
           'Uma das ações: `FALHA_EQUIPAMENTO` / `DESATIVAR_EQUIPAMENTO` { equipamentoId }, `REALOCAR_AGENTES` { agentes[], regiaoDestino }, ' +
           '`ANTECIPAR_MANUTENCAO` { equipamentoId, novaData }, `EXECUTAR_ROTA_MANUTENCAO` { equipamentoIds[] }.',
         properties: {
-          tipo: { type: 'string', enum: ['FALHA_EQUIPAMENTO', 'DESATIVAR_EQUIPAMENTO', 'REALOCAR_AGENTES', 'ANTECIPAR_MANUTENCAO', 'EXECUTAR_ROTA_MANUTENCAO'] },
+          tipo: {
+            type: 'string',
+            enum: ['FALHA_EQUIPAMENTO', 'DESATIVAR_EQUIPAMENTO', 'REALOCAR_AGENTES', 'ANTECIPAR_MANUTENCAO', 'EXECUTAR_ROTA_MANUTENCAO', 'DESPACHAR_AGENTE'],
+            description: '`DESPACHAR_AGENTE` só é aceita em /api/simulacao; para despachar de fato use POST /api/ocorrencias/{id}/despachar',
+          },
+          agenteId: { type: 'string' },
+          ocorrenciaId: { type: 'string' },
           equipamentoId: { type: 'string' },
           equipamentoIds: { type: 'array', items: { type: 'string' } },
           agentes: { type: 'array', items: { type: 'string' } },
@@ -379,6 +385,37 @@ export const OPENAPI = {
           'recomendação dos manuais), grava em `dossie` e passa a ocorrência de `aberta` para `investigada`. Registra `INVESTIGAR_OCORRENCIA` na auditoria.',
         parameters: [idParam, { $ref: '#/components/parameters/usuario' }],
         responses: { 200: ok('Ocorrência com o dossiê', ref('Ocorrencia')), 404: NAO_ENCONTRADO, 409: erro('Equipamento da ocorrência foi excluído') },
+      },
+    },
+    '/api/ocorrencias/{id}/despacho': {
+      get: {
+        tags: ['Ocorrências'],
+        summary: 'Sugere os agentes mais próximos (sem gravar)',
+        description:
+          'Perfil: furto → guarda municipal e polícia militar; falha/manutenção → agente de trânsito; sem ninguém do perfil, qualquer agente em serviço. ' +
+          'Ranking por ETA = distância em linha reta ÷ velocidade média (ESTIMATIVA); agente de folga entra como convocação, com penalidade de tempo. ' +
+          'Cada sugestão traz o custo colateral de tirar o agente do posto (efetivo, risco e cobertura do bairro de origem, pelo simulador).',
+        parameters: [
+          idParam,
+          query('topN', 'Quantidade de sugestões (padrão 3)', { type: 'integer', default: 3 }),
+          query('velocidadeKmH', 'Velocidade média para o ETA (padrão 30)', { type: 'number', default: 30 }),
+        ],
+        responses: { 200: ok('Perfil, sugestões ordenadas por ETA e observação sobre a estimativa'), 404: NAO_ENCONTRADO, 409: erro('Equipamento da ocorrência foi excluído') },
+      },
+    },
+    '/api/ocorrencias/{id}/despachar': {
+      post: {
+        tags: ['Ocorrências'],
+        summary: 'Despacha um agente para o local',
+        description: 'Move o agente até o equipamento (situação "em atendimento"), grava a origem em `despacho` para o retorno ao encerrar, passa a ocorrência para `despachada` e registra `DESPACHAR_AGENTE` na auditoria.',
+        parameters: [idParam, { $ref: '#/components/parameters/usuario' }],
+        requestBody: body({ type: 'object', required: ['agenteId'], properties: { agenteId: { type: 'string' } } }, { agenteId: 'AG-01' }),
+        responses: {
+          200: ok('Novo estado completo, com `ocorrencia`', ref('Estado')),
+          400: INVALIDO,
+          404: erro('Ocorrência ou agente não encontrado'),
+          409: erro('Ocorrência encerrada, já despachada, agente já em atendimento ou equipamento excluído'),
+        },
       },
     },
     '/api/manuais/busca': {

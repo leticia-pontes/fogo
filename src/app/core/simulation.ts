@@ -17,7 +17,8 @@ export type Acao =
   | { tipo: 'DESATIVAR_EQUIPAMENTO'; equipamentoId: string }
   | { tipo: 'REALOCAR_AGENTES'; agentes: string[]; regiaoDestino: string }
   | { tipo: 'ANTECIPAR_MANUTENCAO'; equipamentoId: string; novaData: string }
-  | { tipo: 'EXECUTAR_ROTA_MANUTENCAO'; equipamentoIds: string[] };
+  | { tipo: 'EXECUTAR_ROTA_MANUTENCAO'; equipamentoIds: string[] }
+  | { tipo: 'DESPACHAR_AGENTE'; agenteId: string; ocorrenciaId: string; equipamentoId: string };
 
 /** Fotografia dos indicadores usada no ANTES × DEPOIS. */
 export interface Panorama {
@@ -115,6 +116,20 @@ export function aplicarAcao(
         ? `Realocar ${found.length} agente(s) de ${origins.join(', ')} para ${acao.regiaoDestino}`
         : `Convocar ${found.length} agente(s) de folga em ${acao.regiaoDestino}`,
       afetados: { equipamentos: [], agentes: [...ids] },
+    };
+  }
+
+  if (acao.tipo === 'DESPACHAR_AGENTE') {
+    const agente = state.agents.find((a) => a.id === acao.agenteId);
+    if (!agente) throw new AcaoInvalida(`Agente não encontrado: ${acao.agenteId}`);
+    const local = state.equipment.find((e) => e.id === acao.equipamentoId);
+    if (!local) throw new AcaoInvalida(`Equipamento não encontrado: ${acao.equipamentoId}`);
+    if (agente.status === 'in_dispatch') throw new AcaoInvalida(`${agente.name} já está em atendimento`);
+    const { lat, lng, neighborhood } = local.location;
+    return {
+      state: { ...state, agents: state.agents.map((a) => (a.id === agente.id ? { ...a, lat, lng, neighborhood, status: 'in_dispatch' } : a)) },
+      descricao: `${agente.status === 'off_duty' ? 'Convocar e despachar' : 'Despachar'} ${agente.name} (${agente.neighborhood}) para ${local.serialNumber} em ${neighborhood} · ocorrência ${acao.ocorrenciaId}`,
+      afetados: { equipamentos: [local.id], agentes: [agente.id] },
     };
   }
 
@@ -245,6 +260,13 @@ function fatores(state: CityState, acao: Acao): string[] {
       'Equipamentos de fiscalização reparados deixam de somar 15 pontos ao escore de colapso',
     ];
   }
+  if (acao.tipo === 'DESPACHAR_AGENTE') {
+    return [
+      'O agente vai até o local do equipamento e passa a "em atendimento" (continua contando no efetivo, agora no bairro do local)',
+      'Efetivo em serviço comparado ao necessário no pico, no bairro de origem e no do local (déficit pesa 10 pontos por agente no risco)',
+      `Cobertura de agentes: raio de ${AGENT_COVERAGE_RADIUS_M} m em torno da nova posição`,
+    ];
+  }
   if (acao.tipo === 'REALOCAR_AGENTES') {
     return [
       'Efetivo em serviço comparado ao necessário no pico, na origem e no destino (déficit pesa 10 pontos por agente no risco)',
@@ -289,7 +311,7 @@ function avisos(
   for (const h of depois.saude) {
     const prev = antes.saude.find((x) => x.neighborhood === h.neighborhood)!;
     if (prev.health - h.health >= 10) list.push(`Saúde de ${h.neighborhood} cai ${prev.health - h.health} pontos`);
-    if (acao.tipo === 'REALOCAR_AGENTES' && h.agentsOnDuty < prev.agentsOnDuty && h.agentsOnDuty < h.agentsRequired) {
+    if ((acao.tipo === 'REALOCAR_AGENTES' || acao.tipo === 'DESPACHAR_AGENTE') && h.agentsOnDuty < prev.agentsOnDuty && h.agentsOnDuty < h.agentsRequired) {
       list.push(`${h.neighborhood} fica com ${h.agentsOnDuty} de ${h.agentsRequired} agentes necessários no pico`);
     }
   }

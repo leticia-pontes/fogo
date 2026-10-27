@@ -1,4 +1,5 @@
 import { Component, computed, inject, signal } from '@angular/core';
+import { Despacho, ROLE_LABELS_DESPACHO, ResultadoDespacho } from '../../core/dispatch';
 import { Dossie } from '../../core/investigation';
 import { Confianca } from '../../core/manuals';
 import { Ocorrencia, STATUS_OCORRENCIA, STATUS_OCORRENCIA_LABELS, StatusOcorrencia, TIPO_ALERTA_LABELS } from '../../core/occurrences';
@@ -6,6 +7,7 @@ import { STATUS_COLORS, STATUS_LABELS, TYPE_LABELS } from '../../models/equipmen
 import { EquipmentStatus, EquipmentType } from '../../models/fogo.models';
 import { CityStateService } from '../../services/city-state.service';
 import { OccurrenceService } from '../../services/occurrence.service';
+import { SimulationService } from '../../services/simulation.service';
 import { UiStateService } from '../../services/ui-state.service';
 
 const FIELD =
@@ -144,6 +146,53 @@ const STATUS_STYLES: Record<StatusOcorrencia, string> = {
             A investigação cruza histórico, padrões, impacto e manuais.
           </p>
         }
+
+        <section class="space-y-2 border-t border-fogo-border pt-3" aria-label="Despacho">
+          <h4 class="text-xs font-semibold uppercase tracking-wide text-fogo-ember">Despacho</h4>
+          @if (despacho(o); as dp) {
+            <div class="rounded-lg border border-fogo-ember/60 bg-fogo-bg p-2.5 space-y-0.5">
+              <p class="font-medium">{{ dp.agenteNome }} · {{ roleLabels[dp.funcao] }} · {{ dp.orgao }}</p>
+              <p class="text-xs text-fogo-muted">
+                {{ dp.convocacao ? 'Convocado(a) de folga' : 'Saiu de ' + dp.origem.bairro }} às {{ formatDateTime(dp.despachadoEm) }} ·
+                {{ dp.distanciaKm.toLocaleString('pt-BR') }} km · ETA estimado ~{{ dp.etaMin }} min
+              </p>
+              <p class="text-[11px] text-fogo-muted">Linha laranja no mapa: origem → local. Ao encerrar, o agente volta à origem.</p>
+            </div>
+          } @else if (o.status !== 'encerrada') {
+            @let sug = suggestions(o);
+            @if (!sug) {
+              <button type="button" class="btn-secondary w-full" [disabled]="occ.busy() || !eq" (click)="occ.suggestDispatch(o.id)">Sugerir agentes mais próximos</button>
+            } @else {
+              <p class="text-xs text-fogo-muted">
+                Perfil: {{ sug.perfil }}{{ sug.fallback ? ' (ninguém do perfil livre: qualquer agente em serviço)' : '' }}.
+              </p>
+              @for (x of sug.sugestoes; track x.agenteId; let i = $index) {
+                <div class="rounded-lg border border-fogo-border bg-fogo-bg p-2.5 space-y-1">
+                  <div class="flex items-center justify-between gap-2">
+                    <p class="font-medium">{{ i + 1 }}. {{ x.nome }}</p>
+                    <span class="text-xs font-mono">~{{ x.etaMin }} min</span>
+                  </div>
+                  <p class="text-xs text-fogo-muted">
+                    {{ roleLabels[x.funcao] }} · {{ x.orgao }} · {{ x.bairro }} · {{ x.distanciaKm.toLocaleString('pt-BR') }} km
+                    @if (x.convocacao) {
+                      · <span class="text-fogo-amber">convocar (de folga)</span>
+                    }
+                  </p>
+                  <p class="text-[11px] text-fogo-muted">Custo colateral: {{ x.custoColateral.texto }}</p>
+                  <div class="grid grid-cols-2 gap-2 pt-1">
+                    <button type="button" class="btn-secondary text-xs" (click)="sim.open(x.acao)">Simular</button>
+                    <button type="button" class="btn-primary text-xs" [disabled]="occ.busy()" (click)="confirmDispatch(o.id, x.agenteId, x.nome, x.etaMin)">Despachar</button>
+                  </div>
+                </div>
+              } @empty {
+                <p class="text-xs text-fogo-muted">Nenhum agente livre no momento: todos estão em atendimento.</p>
+              }
+              <p class="text-[11px] text-fogo-muted">{{ sug.observacao }}</p>
+            }
+          } @else {
+            <p class="text-xs text-fogo-muted">Encerrada sem despacho.</p>
+          }
+        </section>
       } @else {
       <div class="flex items-end gap-2">
         <label class="flex-1 space-y-1">
@@ -217,6 +266,24 @@ export class OccurrencesPanelComponent {
   readonly alertLabels = TIPO_ALERTA_LABELS;
   readonly statusColors = STATUS_COLORS;
   readonly equipmentStatusLabels = STATUS_LABELS;
+
+  readonly sim = inject(SimulationService);
+  readonly roleLabels = ROLE_LABELS_DESPACHO;
+
+  despacho(o: Ocorrencia): Despacho | null {
+    return (o.despacho as Despacho | null) ?? null;
+  }
+
+  suggestions(o: Ocorrencia): ResultadoDespacho | null {
+    const s = this.occ.dispatchSuggestions();
+    return s?.ocorrenciaId === o.id ? s.resultado : null;
+  }
+
+  confirmDispatch(id: string, agenteId: string, nome: string, eta: number): void {
+    if (confirm(`Despachar ${nome} para a ocorrência ${id}? ETA estimado ~${eta} min. O agente passa a "em atendimento" e a ação vai para a auditoria.`)) {
+      void this.occ.dispatch(id, agenteId);
+    }
+  }
 
   dossie(o: Ocorrencia): Dossie | null {
     return (o.dossie as Dossie | null) ?? null;

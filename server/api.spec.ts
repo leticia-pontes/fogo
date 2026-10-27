@@ -222,6 +222,32 @@ describe('API + SQLite', () => {
       expect((await call('GET', '/ocorrencias/OC-9999/dossie')).status).toBe(404);
     });
 
+    it('sugere, despacha (move o agente, grava a origem e audita) e bloqueia o segundo despacho', async () => {
+      const equipamentoId = (await call<Equipment[]>('GET', '/equipamentos?situacao=malfunction')).data[0].id;
+      const { data: oc } = await call('POST', '/ocorrencias', { equipamentoId, tipoAlerta: 'falha' });
+      const sim = await call('GET', `/ocorrencias/${oc.id}/despacho`);
+      expect(sim.status).toBe(200);
+      const [top] = sim.data.sugestoes;
+      expect(top.funcao).toBe('transit_agent');
+      expect((await call('GET', `/ocorrencias/${oc.id}`)).data.status).toBe('aberta');
+
+      const simulado = await call('POST', '/simulacao', { acao: top.acao });
+      expect(simulado.status).toBe(200);
+      expect((await call('POST', '/acoes/aplicar', { acao: top.acao })).status).toBe(400);
+
+      const res = await call('POST', `/ocorrencias/${oc.id}/despachar`, { agenteId: top.agenteId });
+      expect(res.status).toBe(200);
+      expect(res.data.ocorrencia).toMatchObject({ status: 'despachada', despacho: { agenteId: top.agenteId, retornoEm: null } });
+      const agente = (res.data.agents as Agent[]).find((a) => a.id === top.agenteId)!;
+      expect(agente.status).toBe('in_dispatch');
+
+      await restart();
+      expect((await call('GET', `/ocorrencias/${oc.id}`)).data.despacho.origem.bairro).toBe(top.bairro);
+      expect((await call('GET', '/auditoria?limite=1')).data[0].acao).toBe('DESPACHAR_AGENTE');
+      expect((await call('POST', `/ocorrencias/${oc.id}/despachar`, { agenteId: top.agenteId })).status).toBe(409);
+      expect((await call('POST', `/ocorrencias/${oc.id}/despachar`, {})).status).toBe(400);
+    });
+
     it('busca nos manuais pela API', async () => {
       const { status, data } = await call('GET', '/manuais/busca?q=falha%20lote%20troca&tipo=camera&fabricante=Hikvision');
       expect(status).toBe(200);

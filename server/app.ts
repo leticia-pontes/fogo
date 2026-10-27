@@ -11,6 +11,7 @@ import { STATUS_OCORRENCIA, StatusOcorrencia, abrirOcorrencia, validarAbertura, 
 import { recomendarAcoes } from '../src/app/core/recommendations';
 import { recuperarTrechos } from '../src/app/core/manuals';
 import { JANELA_VIZINHANCA_H, investigarOcorrencia } from '../src/app/core/investigation';
+import { bloqueioDespacho, despachar, sugerirDespacho } from '../src/app/core/dispatch';
 import { MANUAIS } from '../src/app/data/manuals-index';
 import { Acao, AcaoInvalida, aplicarAcao, simular } from '../src/app/core/simulation';
 import { SCENARIOS, ScenarioId, applyScenario, recordSnapshot, revertScenarios } from '../src/app/core/scenarios';
@@ -356,9 +357,11 @@ route('POST', '/api/reset', (req, ctx) => {
 // Simulador e próxima melhor ação
 // -----------------------------------------------------------------------------
 
-function readAction(body: unknown): Acao {
+/** `DESPACHAR_AGENTE` só pode ser simulada aqui; despachar de fato passa pela ocorrência (guarda a origem do agente). */
+function readAction(body: unknown, permitirDespacho = false): Acao {
   const acao = (body as { acao?: Acao })?.acao;
   const tipos = ['FALHA_EQUIPAMENTO', 'DESATIVAR_EQUIPAMENTO', 'REALOCAR_AGENTES', 'ANTECIPAR_MANUTENCAO', 'EXECUTAR_ROTA_MANUTENCAO'];
+  if (permitirDespacho) tipos.push('DESPACHAR_AGENTE');
   if (!acao || !tipos.includes(acao.tipo)) throw new HttpError(400, `Ação inválida: use { acao: { tipo: ${tipos.join(' | ')} , ... } }`);
   return acao;
 }
@@ -374,7 +377,7 @@ function withActionErrors<T>(fn: () => T): T {
 
 /** Simula a ação sobre o estado atual, SEM gravar nada. */
 route('POST', '/api/simulacao', (req, ctx) => {
-  const acao = readAction(req.body);
+  const acao = readAction(req.body, true);
   return withActionErrors(() => simular(ctx.repo.lerEstado(), acao));
 });
 
@@ -510,6 +513,48 @@ route('GET', '/api/ocorrencias/:id/dossie', (req, ctx) => {
     });
     return after;
   });
+});
+
+/** Sugestões de despacho (top 3 por ETA estimado), sem gravar nada. */
+route('GET', '/api/ocorrencias/:id/despacho', (req, ctx) => {
+  const ocorrencia = ctx.repo.obterOcorrencia(req.params['id']) ?? notFound();
+  if (!ctx.repo.obterEquipamento(ocorrencia.equipamentoId)) throw new HttpError(409, `O equipamento ${ocorrencia.equipamentoId} foi excluído`);
+  return sugerirDespacho(ctx.repo.lerEstado(), ocorrencia, {
+    topN: Math.min(10, Number(req.query.get('topN')) || 3),
+    velocidadeKmH: Number(req.query.get('velocidadeKmH')) || undefined,
+  });
+});
+
+/** Despacha o agente: move até o local, grava a origem (para o retorno), passa para "despachada" e audita. */
+route('POST', '/api/ocorrencias/:id/despachar', (req, ctx) => {
+  const before = ctx.repo.obterOcorrencia(req.params['id']) ?? notFound();
+  const agenteId = (req.body as { agenteId?: unknown })?.agenteId;
+  if (typeof agenteId !== 'string' || !agenteId) throw new HttpError(400, 'Dados inválidos', ['agenteId é obrigatório']);
+  const bloqueio = bloqueioDespacho(before);
+  if (bloqueio) throw new HttpError(409, bloqueio);
+  const agente = ctx.repo.obterAgente(agenteId);
+  if (!agente) throw new HttpError(404, `Agente ${agenteId} não encontrado`);
+  if (agente.status === 'in_dispatch') throw new HttpError(409, `${agente.name} já está em atendimento`);
+  if (!ctx.repo.obterEquipamento(before.equipamentoId)) throw new HttpError(409, `O equipamento ${before.equipamentoId} foi excluído`);
+  const ocorrencia = ctx.repo.transacao(() =>
+    withActionErrors(() => {
+      const estado = ctx.repo.lerEstado();
+      const { state, despacho, descricao } = despachar(estado, before, agenteId, new Date());
+      persistState(ctx, estado, state, 'acao');
+      const after = { ...before, despacho, status: 'despachada' as const };
+      ctx.repo.atualizarOcorrencia(after);
+      ctx.repo.registrarAuditoria({
+        acao: 'DESPACHAR_AGENTE',
+        autor: req.autor,
+        descricao: `${descricao} · ${despacho.distanciaKm.toLocaleString('pt-BR')} km, ETA estimado ~${despacho.etaMin} min`,
+        antes: { ocorrenciaId: before.id, status: before.status, agente },
+        depois: { ocorrenciaId: before.id, status: after.status, agente: state.agents.find((a) => a.id === agenteId) },
+      });
+      ctx.afterWrite();
+      return after;
+    })
+  );
+  return { ...ctx.estadoCompleto(), ocorrencia };
 });
 
 /** Busca nos manuais fictícios (BM25 + bônus por tipo e fabricante). */

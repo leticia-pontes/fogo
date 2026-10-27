@@ -542,6 +542,7 @@ export class OpsCenterComponent implements AfterViewInit, OnDestroy {
   /** Pontos cegos, raios de cobertura e células alteradas pela simulação. */
   private coverageLayer: Leaflet.LayerGroup | null = null;
   private routeLayer: Leaflet.LayerGroup | null = null;
+  private dispatchLayer: Leaflet.LayerGroup | null = null;
   private cityBounds: Leaflet.LatLngBounds | null = null;
   private readonly mapReady = signal(false);
   /** Agentes e o item selecionado: sempre visíveis, fora dos grupos. */
@@ -559,6 +560,23 @@ export class OpsCenterComponent implements AfterViewInit, OnDestroy {
       const selectedId = this.city.selection()?.id ?? null;
       const highlighted = new Set([...this.sim.highlighted(), ...(this.sim.panel() === 'occurrences' ? this.occ.highlighted() : [])]);
       if (this.mapReady()) this.render(equipment, agents, regions, selectedId, highlighted);
+    });
+
+    // Ocorrência selecionada: linha tracejada de cada agente sugerido (ou do despachado) até o local.
+    effect(() => {
+      const lines = this.sim.panel() === 'occurrences' ? this.occ.dispatchLines() : [];
+      if (!this.mapReady() || !this.L || !this.dispatchLayer) return;
+      this.dispatchLayer.clearLayers();
+      for (const l of lines) {
+        this.L.polyline([l.from, l.to], {
+          color: l.chosen ? '#ff7a3d' : '#f2c14e',
+          weight: l.chosen ? 3 : 2,
+          opacity: l.chosen ? 0.9 : 0.7,
+          dashArray: '6 6',
+        })
+          .bindTooltip(l.label, { sticky: true })
+          .addTo(this.dispatchLayer);
+      }
     });
 
     // Rota de manutenção: linha numerada da base até a última parada.
@@ -637,6 +655,7 @@ export class OpsCenterComponent implements AfterViewInit, OnDestroy {
     this.districtLayer = L.layerGroup().addTo(this.map);
     this.coverageLayer = L.layerGroup().addTo(this.map);
     this.routeLayer = L.layerGroup().addTo(this.map);
+    this.dispatchLayer = L.layerGroup().addTo(this.map);
     const clusterGroup = L.markerClusterGroup({
       disableClusteringAtZoom: 16,
       maxClusterRadius: 50,
