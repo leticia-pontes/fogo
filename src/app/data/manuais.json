@@ -335,6 +335,51 @@
     "texto": "A reposição deve priorizar pontos que ficaram sem cobertura de câmera ou radar. Instale com proteção antifurto (gabinete reforçado, parafusos de segurança) em pontos reincidentes."
   },
   {
+    "id": "queda-de-energia#diagnostico",
+    "fonte": "queda-de-energia.md",
+    "titulo": "Queda de energia em vários pontos",
+    "secao": "Diagnóstico",
+    "tipos": [
+      "geral"
+    ],
+    "fabricante": null,
+    "topicos": [
+      "energia",
+      "falha"
+    ],
+    "texto": "Vários equipamentos fixos do mesmo bairro caindo ao mesmo tempo indicam falta de energia, não defeito dos equipamentos. Confirme com a concessionária antes de abrir OS individuais: trocar peças não resolve falta de alimentação."
+  },
+  {
+    "id": "queda-de-energia#acoes-durante-o-apagao",
+    "fonte": "queda-de-energia.md",
+    "titulo": "Queda de energia em vários pontos",
+    "secao": "Ações durante o apagão",
+    "tipos": [
+      "geral"
+    ],
+    "fabricante": null,
+    "topicos": [
+      "energia",
+      "policiamento"
+    ],
+    "texto": "Acione a concessionária de energia e registre o protocolo. Desloque agentes de trânsito para os cruzamentos sem semáforo ou fiscalização e mantenha a guarda municipal em ronda nos pontos sem câmera."
+  },
+  {
+    "id": "queda-de-energia#retorno-da-energia",
+    "fonte": "queda-de-energia.md",
+    "titulo": "Queda de energia em vários pontos",
+    "secao": "Retorno da energia",
+    "tipos": [
+      "geral"
+    ],
+    "fabricante": null,
+    "topicos": [
+      "energia",
+      "manutencao-preventiva"
+    ],
+    "texto": "Com a energia restabelecida, verifique cada equipamento: os que não voltarem sozinhos em 15 minutos recebem OS corretiva. Registre na ocorrência o horário da queda e do retorno."
+  },
+  {
     "id": "radar#falha-de-leitura-ou-captura",
     "fonte": "radar.md",
     "titulo": "Manual de operação: radar de fiscalização",

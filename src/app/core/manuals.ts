@@ -20,6 +20,7 @@ export interface ResultadoBusca {
   fonte: string;
   secao: string;
   topicos: string[];
+  tipos: string[];
   score: number;
 }
 
@@ -123,6 +124,7 @@ export function recuperarTrechos(indice: readonly TrechoManual[], consulta: stri
     fonte: trecho.fonte,
     secao: trecho.secao,
     topicos: trecho.topicos,
+    tipos: trecho.tipos,
     score,
   }));
 }
@@ -137,10 +139,12 @@ export interface ContextoDecisao {
   situacao: EquipmentStatus;
   fabricante?: string;
   modelo?: string;
-  /** Outras ocorrências/furtos/falhas recentes no mesmo bairro. */
+  /** Outras ocorrências, furtos ou falhas recentes na vizinhança (padrão VIZINHANCA da investigação). */
   ocorrenciasRecentesNoBairro: number;
   /** Outros equipamentos do mesmo fabricante e modelo em falha. */
   falhasMesmoModelo: number;
+  /** Padrão de queda de energia no bairro (vários fixos caindo juntos). */
+  quedaEnergia?: boolean;
 }
 
 export type Confianca = 'alta' | 'media' | 'baixa';
@@ -175,7 +179,7 @@ export const REGRAS: readonly Regra[] = [
     quando: (c) => c.tipoAlerta === 'furto' && c.ocorrenciasRecentesNoBairro > 0,
     decisao: 'Acionar guarda municipal e polícia militar para ronda no perímetro e registrar boletim de ocorrência',
     justificativa: (c) =>
-      `Furto com ${plural(c.ocorrenciasRecentesNoBairro, 'outra ocorrência recente', 'outras ocorrências recentes')} no mesmo bairro: padrão de furtos em série.`,
+      `Furto com ${plural(c.ocorrenciasRecentesNoBairro, 'outra ocorrência recente', 'outras ocorrências recentes')} na vizinhança: padrão de furtos em série.`,
     topico: 'reincidencia',
     consulta: 'furtos em série mesmo bairro ronda policiamento guarda municipal polícia militar boletim',
     confianca: 'alta',
@@ -184,9 +188,18 @@ export const REGRAS: readonly Regra[] = [
     id: 'FURTO_ISOLADO',
     quando: (c) => c.tipoAlerta === 'furto',
     decisao: 'Registrar boletim de ocorrência, bloquear o equipamento nos sistemas e solicitar reposição',
-    justificativa: () => 'Furto sem outras ocorrências recentes no bairro: procedimento padrão de furto.',
+    justificativa: () => 'Furto sem outras ocorrências recentes na vizinhança: procedimento padrão de furto.',
     topico: 'furto',
     consulta: 'furto boletim ocorrência bloquear reposição',
+    confianca: 'media',
+  },
+  {
+    id: 'QUEDA_DE_ENERGIA',
+    quando: (c) => c.tipoAlerta === 'falha' && !!c.quedaEnergia,
+    decisao: 'Acionar a concessionária de energia e deslocar agentes para os pontos sem fiscalização, sem abrir OS individuais',
+    justificativa: () => 'Vários equipamentos fixos do bairro caíram juntos: a causa provável é a alimentação, não o equipamento.',
+    topico: 'energia',
+    consulta: 'queda de energia concessionária vários equipamentos apagão',
     confianca: 'media',
   },
   {
@@ -243,8 +256,10 @@ export function regraPara(contexto: ContextoDecisao): Regra {
  */
 export function decidirComManual(contexto: ContextoDecisao, trechos: readonly ResultadoBusca[]): DecisaoManual {
   const regra = regraPara(contexto);
-  const fontes = trechos
-    .filter((r) => r.topicos.includes(regra.topico))
+  const sobreOTopico = trechos.filter((r) => r.topicos.includes(regra.topico));
+  // Prefere o manual do próprio tipo e os transversais; os de outros tipos só entram se não houver nenhum desses.
+  const doTipo = sobreOTopico.filter((r) => r.tipos.includes(contexto.tipoEquipamento) || r.tipos.includes('geral'));
+  const fontes = (doTipo.length ? doTipo : sobreOTopico)
     .slice(0, 2)
     .map(({ id, fonte, secao, trecho }) => ({ id, fonte, secao, trecho }));
   const limitacoes = ['Manuais fictícios, criados para a demonstração.'];

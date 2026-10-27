@@ -370,6 +370,17 @@ export const OPENAPI = {
     '/api/ocorrencias/{id}': {
       get: { tags: ['Ocorrências'], summary: 'Consulta uma ocorrência', parameters: [idParam], responses: { 200: ok('Ocorrência', ref('Ocorrencia')), 404: NAO_ENCONTRADO } },
     },
+    '/api/ocorrencias/{id}/dossie': {
+      get: {
+        tags: ['Ocorrências'],
+        summary: 'Investiga a ocorrência e grava o dossiê',
+        description:
+          'Gera o dossiê (o que aconteceu, histórico, padrões LOTE / VIZINHANCA / POSSIVEL_ENERGIA, impacto pelo simulador, hipótese e ' +
+          'recomendação dos manuais), grava em `dossie` e passa a ocorrência de `aberta` para `investigada`. Registra `INVESTIGAR_OCORRENCIA` na auditoria.',
+        parameters: [idParam, { $ref: '#/components/parameters/usuario' }],
+        responses: { 200: ok('Ocorrência com o dossiê', ref('Ocorrencia')), 404: NAO_ENCONTRADO, 409: erro('Equipamento da ocorrência foi excluído') },
+      },
+    },
     '/api/manuais/busca': {
       get: {
         tags: ['Ocorrências'],

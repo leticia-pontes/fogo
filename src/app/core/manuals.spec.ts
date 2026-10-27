@@ -45,6 +45,7 @@ describe('manuais: decisão por regras', () => {
     ['EQUIPAMENTO_DESATIVADO', { situacao: 'deactivated' }],
     ['FURTO_REINCIDENTE', { tipoAlerta: 'furto', situacao: 'stolen', ocorrenciasRecentesNoBairro: 2 }],
     ['FURTO_ISOLADO', { tipoAlerta: 'furto', situacao: 'stolen' }],
+    ['QUEDA_DE_ENERGIA', { falhasMesmoModelo: 2, quedaEnergia: true }],
     ['FALHA_EM_LOTE', { falhasMesmoModelo: 2 }],
     ['FALHA_ISOLADA', {}],
     ['MANUTENCAO', { tipoAlerta: 'manutencao', situacao: 'operational', tipoEquipamento: 'radar' }],

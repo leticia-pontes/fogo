@@ -156,16 +156,25 @@ export class Repositorio {
   }
 
   listarEventos(limit = 50): StatusEvent[] {
+    return (this.db.prepare('SELECT * FROM eventos_situacao ORDER BY id DESC LIMIT ?').all(limit) as Record<string, string>[]).map(toStatusEvent);
+  }
+
+  /** Eventos de um equipamento/agente (histórico completo) e de todos a partir de `desde` (padrões da investigação). */
+  listarEventosParaInvestigacao(alvoId: string, desde: string): StatusEvent[] {
     return (
-      this.db.prepare('SELECT * FROM eventos_situacao ORDER BY id DESC LIMIT ?').all(limit) as Record<string, string>[]
-    ).map((r) => ({
-      alvoTipo: r['alvo_tipo'] as StatusEvent['alvoTipo'],
-      alvoId: r['alvo_id'],
-      situacaoAnterior: r['situacao_anterior'],
-      situacaoNova: r['situacao_nova'],
-      origem: r['origem'] as Origem,
-      criadoEm: r['criado_em'],
-    }));
+      this.db
+        .prepare('SELECT * FROM eventos_situacao WHERE alvo_id = ? OR criado_em >= ? ORDER BY id')
+        .all(alvoId, desde) as Record<string, string>[]
+    ).map(toStatusEvent);
+  }
+
+  /** Auditoria que menciona o texto (id ou número de série) na descrição ou no antes/depois. */
+  listarAuditoriaSobre(...textos: string[]): AuditEntry[] {
+    const where = textos.map(() => '(descricao LIKE ? OR antes LIKE ? OR depois LIKE ?)').join(' OR ');
+    const params = textos.flatMap((t) => Array(3).fill(`%${t}%`));
+    return (this.db.prepare(`SELECT * FROM auditoria WHERE ${where} ORDER BY id`).all(...params) as Record<string, string | number | null>[]).map(
+      toAuditEntry
+    );
   }
 
   contarEventos(): number {
@@ -214,15 +223,7 @@ export class Repositorio {
   }
 
   listarAuditoria(limit = 50): AuditEntry[] {
-    return (this.db.prepare('SELECT * FROM auditoria ORDER BY id DESC LIMIT ?').all(limit) as Record<string, string | number | null>[]).map((r) => ({
-      id: Number(r['id']),
-      acao: String(r['acao']),
-      autor: String(r['autor']),
-      descricao: String(r['descricao']),
-      antes: r['antes'] ? JSON.parse(String(r['antes'])) : undefined,
-      depois: r['depois'] ? JSON.parse(String(r['depois'])) : undefined,
-      criadoEm: String(r['criado_em']),
-    }));
+    return (this.db.prepare('SELECT * FROM auditoria ORDER BY id DESC LIMIT ?').all(limit) as Record<string, string | number | null>[]).map(toAuditEntry);
   }
 
   abrirOcorrencia(o: Ocorrencia): void {
@@ -365,5 +366,28 @@ function fromOcorrenciaRow(r: OcorrenciaRow): Ocorrencia {
     dossie: parseJson(r.dossie),
     despacho: parseJson(r.despacho),
     encerramento: parseJson(r.encerramento),
+  };
+}
+
+function toStatusEvent(r: Record<string, string>): StatusEvent {
+  return {
+    alvoTipo: r['alvo_tipo'] as StatusEvent['alvoTipo'],
+    alvoId: r['alvo_id'],
+    situacaoAnterior: r['situacao_anterior'],
+    situacaoNova: r['situacao_nova'],
+    origem: r['origem'] as Origem,
+    criadoEm: r['criado_em'],
+  };
+}
+
+function toAuditEntry(r: Record<string, string | number | null>): AuditEntry {
+  return {
+    id: Number(r['id']),
+    acao: String(r['acao']),
+    autor: String(r['autor']),
+    descricao: String(r['descricao']),
+    antes: r['antes'] ? JSON.parse(String(r['antes'])) : undefined,
+    depois: r['depois'] ? JSON.parse(String(r['depois'])) : undefined,
+    criadoEm: String(r['criado_em']),
   };
 }

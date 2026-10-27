@@ -10,6 +10,7 @@ import { gerarRotaManutencao } from '../src/app/core/maintenance-route';
 import { STATUS_OCORRENCIA, StatusOcorrencia, abrirOcorrencia, validarAbertura, type AberturaOcorrencia } from '../src/app/core/occurrences';
 import { recomendarAcoes } from '../src/app/core/recommendations';
 import { recuperarTrechos } from '../src/app/core/manuals';
+import { JANELA_VIZINHANCA_H, investigarOcorrencia } from '../src/app/core/investigation';
 import { MANUAIS } from '../src/app/data/manuals-index';
 import { Acao, AcaoInvalida, aplicarAcao, simular } from '../src/app/core/simulation';
 import { SCENARIOS, ScenarioId, applyScenario, recordSnapshot, revertScenarios } from '../src/app/core/scenarios';
@@ -480,6 +481,36 @@ route('GET', '/api/ocorrencias', (req, ctx) => {
 });
 
 route('GET', '/api/ocorrencias/:id', (req, ctx) => ctx.repo.obterOcorrencia(req.params['id']) ?? notFound());
+
+/**
+ * Investiga a ocorrência: gera o dossiê, grava e passa a ocorrência para "investigada" (se ainda estava aberta).
+ * Pode ser chamada de novo para refazer o dossiê com os dados atuais.
+ */
+route('GET', '/api/ocorrencias/:id/dossie', (req, ctx) => {
+  const before = ctx.repo.obterOcorrencia(req.params['id']) ?? notFound();
+  const eq = ctx.repo.obterEquipamento(before.equipamentoId);
+  if (!eq) throw new HttpError(409, `O equipamento ${before.equipamentoId} foi excluído; não há o que investigar`);
+  const agora = new Date();
+  return ctx.repo.transacao(() => {
+    const dossie = investigarOcorrencia(ctx.repo.lerEstado(), before, {
+      eventos: ctx.repo.listarEventosParaInvestigacao(eq.id, new Date(agora.getTime() - JANELA_VIZINHANCA_H * 3_600_000).toISOString()),
+      indiceManuais: MANUAIS,
+      agora,
+      ocorrencias: ctx.repo.listarOcorrencias(),
+      auditoria: ctx.repo.listarAuditoriaSobre(eq.id, eq.serialNumber),
+    });
+    const after = { ...before, dossie, status: before.status === 'aberta' ? ('investigada' as const) : before.status };
+    ctx.repo.atualizarOcorrencia(after);
+    ctx.repo.registrarAuditoria({
+      acao: 'INVESTIGAR_OCORRENCIA',
+      autor: req.autor,
+      descricao: `${before.id}: ${dossie.hipotese.texto}`,
+      antes: { ocorrenciaId: before.id, status: before.status },
+      depois: { ocorrenciaId: before.id, status: after.status, padroes: dossie.padroes.map((p) => p.tipo), decisao: dossie.recomendacao.regra },
+    });
+    return after;
+  });
+});
 
 /** Busca nos manuais fictícios (BM25 + bônus por tipo e fabricante). */
 route('GET', '/api/manuais/busca', (req) => {

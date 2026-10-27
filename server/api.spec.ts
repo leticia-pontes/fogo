@@ -202,6 +202,26 @@ describe('API + SQLite', () => {
       expect((await call('GET', '/ocorrencias?status=xyz')).status).toBe(400);
     });
 
+    it('investigar grava o dossiê, passa para investigada e audita (onda de furtos → vizinhança)', async () => {
+      const cenario = await call('POST', '/cenarios/theft_wave');
+      const furtado = (cenario.data.equipment as Equipment[]).find((e) => e.status === 'stolen' && e.type === 'camera' && e.maintenance.priority === 'immediate')!;
+      const { data: oc } = await call('POST', '/ocorrencias', { equipamentoId: furtado.id, tipoAlerta: 'furto' });
+
+      const { status, data } = await call('GET', `/ocorrencias/${oc.id}/dossie`);
+      expect(status).toBe(200);
+      expect(data.status).toBe('investigada');
+      expect(data.dossie.padroes.map((p: { tipo: string }) => p.tipo)).toContain('VIZINHANCA');
+      expect(data.dossie.oQueAconteceu.detectadoEm).not.toBeNull();
+      expect(data.dossie.recomendacao.regra).toBe('FURTO_REINCIDENTE');
+      expect(data.dossie.recomendacao.fontes.length).toBeGreaterThan(0);
+
+      await restart();
+      expect((await call('GET', `/ocorrencias/${oc.id}`)).data.dossie.ocorrenciaId).toBe(oc.id);
+      const audit = (await call('GET', '/auditoria?limite=3')).data;
+      expect(audit[0]).toMatchObject({ acao: 'INVESTIGAR_OCORRENCIA', depois: { status: 'investigada' } });
+      expect((await call('GET', '/ocorrencias/OC-9999/dossie')).status).toBe(404);
+    });
+
     it('busca nos manuais pela API', async () => {
       const { status, data } = await call('GET', '/manuais/busca?q=falha%20lote%20troca&tipo=camera&fabricante=Hikvision');
       expect(status).toBe(200);

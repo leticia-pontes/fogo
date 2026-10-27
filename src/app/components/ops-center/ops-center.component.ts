@@ -557,7 +557,7 @@ export class OpsCenterComponent implements AfterViewInit, OnDestroy {
       const agents = this.city.filteredAgents();
       const regions = this.city.regions();
       const selectedId = this.city.selection()?.id ?? null;
-      const highlighted = this.sim.highlighted();
+      const highlighted = new Set([...this.sim.highlighted(), ...(this.sim.panel() === 'occurrences' ? this.occ.highlighted() : [])]);
       if (this.mapReady()) this.render(equipment, agents, regions, selectedId, highlighted);
     });
 

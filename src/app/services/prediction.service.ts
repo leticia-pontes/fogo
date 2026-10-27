@@ -1,3 +1,4 @@
+import { analisarLotes, emFalha } from '../core/batch';
 import { Injectable, computed, inject } from '@angular/core';
 import { NEIGHBORHOODS, NEIGHBORHOOD_HISTORY, daysFromToday } from '../data/mock-data';
 import { STATUS_LABELS } from '../models/equipment-schema';
@@ -37,10 +38,7 @@ export function actionSignature(action: PredictionAction): string {
     : `mnt:${action.priority}:${[...action.equipmentIds].sort().join(',')}`;
 }
 
-function isFailing(e: Equipment): boolean {
-  if (e.status === 'not_installed' || e.status === 'deactivated' || e.status === 'stolen') return false;
-  return e.status === 'malfunction' || e.status === 'maintenance' || e.maintenance.priority === 'immediate';
-}
+const isFailing = emFalha;
 
 function onDuty(a: Agent): boolean {
   return a.status !== 'off_duty';
@@ -263,19 +261,8 @@ export class PredictionService {
 
   /** Tendência de falha em lote: mesmo fabricante/modelo com taxa de falha acima do restante da frota. */
   private batchFailurePredictions(equipment: Equipment[]): Prediction[] {
-    const installed = equipment.filter((e) => e.status !== 'not_installed' && e.status !== 'deactivated');
-    const fleetRate = installed.length ? installed.filter(isFailing).length / installed.length : 0;
-
-    const groups = new Map<string, Equipment[]>();
-    for (const e of installed) {
-      const key = `${e.brand} ${e.model}`;
-      groups.set(key, [...(groups.get(key) ?? []), e]);
-    }
-
     const result: Prediction[] = [];
-    for (const [lot, units] of groups) {
-      const failing = units.filter(isFailing);
-      const rate = failing.length / units.length;
+    for (const { lote: lot, unidades: units, emFalha: failing, taxa: rate, taxaFrota: fleetRate } of analisarLotes(equipment)) {
       if (failing.length < 2 || rate < 0.3) continue;
 
       const healthy = units.filter((e) => e.status === 'operational' && !isFailing(e));
