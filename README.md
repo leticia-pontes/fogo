@@ -127,7 +127,7 @@ alerta ──▶ abrir ──▶ investigar ──▶ despachar ──▶ encerr
 | **Manuais + regras** | Uma recomendação operacional precisa dizer **de onde veio**. Cada decisão cita o manual e a seção que a sustentam (manuais fictícios, escritos para a demonstração). |
 | **Despacho do agente mais próximo** | Sugere quem chega primeiro (ETA estimado) e mostra o **custo colateral**: "tirar este agente deixa o bairro de origem com risco ALTO". Ao encerrar, o agente volta à posição de origem. |
 | **Relatório pós-ocorrência** | Fecha o ciclo com linha do tempo da auditoria e a cidade **na abertura × agora**. É o documento para arquivar. |
-| **Comprovante com QR Code** | Um cupom de papel para imprimir, salvar em PDF ou abrir no celular pelo QR, para o agente em campo levar o registro no bolso. |
+| **Comprovante com QR Code** | O relatório serve ao arquivo; o comprovante serve a quem está na rua. É o registro de uma página que o agente leva ao sair do local: prova de atendimento, documento para o boletim de ocorrência ou para a garantia do fabricante e resumo para a passagem de turno. O QR Code entrega esse registro ao celular sem login, aplicativo ou cadastro. |
 
 ### 6. A base que sustenta tudo
 
@@ -305,6 +305,13 @@ Templates preenchidos com os números do estado: saudação pelo horário, dispo
 ### Comprovante e QR Code
 
 O comprovante é emitido quando a ocorrência é **encerrada**: um cupom com número, selo ENCERRADA, equipamento, local, horários, duração, quem atendeu, resolução, a cidade **na abertura → agora** e uma frase da PROMETHEUS (3 variações por resolução, só com números reais).
+
+**Para que serve.** O relatório pós-ocorrência é completo e foi feito para o arquivo da central. O trabalho de campo, porém, acontece longe do painel, e quem está lá precisa de outra coisa: um registro curto, oficial e à mão.
+
+- **Agente em campo:** sai do local com a prova de que o atendimento aconteceu, com número da ocorrência, equipamento, horário e resolução. Em caso de furto, esses são exatamente os dados pedidos para registrar o boletim de ocorrência, que é a própria recomendação do manual.
+- **Equipe técnica e fornecedor:** número de série, fabricante, data e tipo de falha formam o registro exigido para acionar a garantia, especialmente quando a investigação aponta defeito de lote.
+- **Gestor:** tem um resumo de uma página para a passagem de turno ou para a prestação de contas à secretaria. O bloco **abertura → agora** mostra o efeito do atendimento na disponibilidade, na saúde e no risco do bairro: a ocorrência fecha com o resultado medido, não só com "resolvido".
+- **Por que QR Code:** agentes e técnicos não têm acesso ao painel. Apontar a câmera transfere o comprovante para o celular sem login, aplicativo, cadastro ou troca de e-mail, e a página permite salvar em PDF ou em texto para encaminhar a quem precisar.
 
 - **Imprimir ou salvar PDF:** sai uma página, só com o cupom, com o papel creme preservado.
 - **Copiar texto:** versão em texto puro, até 42 colunas.
