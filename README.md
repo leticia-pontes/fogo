@@ -69,7 +69,8 @@ src/app/
 - **Alertas**: furtos, falhas graves, manutenção imediata, manutenção vencida ou prevista para os próximos 7 dias, e **agente sem atividade** (fora de turno em bairro cujo efetivo em serviço está abaixo do necessário no pico).
 - **Visão por região**: Normal (< 15%), Atenção (15–30%) ou Crítico (≥ 30%), conforme a proporção de equipamentos indisponíveis no bairro. No mapa, cada bairro é pintado com a cor correspondente (mapa coroplético).
 - **Simular telemetria em tempo real**: a cada 3 s, um equipamento falha ou se recupera e os veículos e agentes seguem pelas vias do próprio bairro, fazendo o retorno no fim do trecho; o endereço acompanha a via atual. O feed de eventos registra cada mudança.
-- **Desempenho**: o mapa é atualizado de forma incremental. Cada marcador é criado uma única vez e depois só se move ou troca de ícone, com ícones compartilhados em cache.
+- **Desempenho**: o mapa é atualizado de forma incremental (`marker-sync.ts`). Cada marcador é criado uma única vez e depois só se move ou troca de ícone, com ícones compartilhados em cache.
+- **Agrupamento**: acima de 300 equipamentos visíveis, os próximos entre si viram grupos (`leaflet.markercluster`). O grupo mostra a quantidade e tem a borda na cor da pior situação que contém (furto > falha > manutenção > desativado > não instalado > operacional); passar o mouse mostra o resumo por situação. A partir do zoom 16 os grupos se desfazem. Agentes e o item selecionado (por clique ou alerta) ficam sempre fora dos grupos. A demonstração padrão, com 72 equipamentos, não usa grupos.
 
 ## Parte 3 – Cidade Preditiva
 
@@ -89,9 +90,10 @@ O modelo é **heurístico e totalmente explicável**: os pesos estão em `predic
 
 ## Testes
 
-`npm test` roda 27 testes unitários (Vitest, via `ng test`) sobre as regras de negócio:
+`npm test` roda 40 testes unitários (Vitest, via `ng test`) sobre as regras de negócio:
 
 - `city-state.service.spec.ts`: KPIs e disponibilidade, filtros aplicados a KPIs, alertas e regiões, limiares de saúde por bairro, alertas (furto, falha, manutenção vencida ou em até 7 dias, agente sem atividade), CRUD, persistência e determinismo do seed.
+- `marker-sync.spec.ts`: o mapa reaproveita os marcadores (só move ou troca o ícone do que mudou, remove o que saiu, compartilha ícones) e, com grupos, aplica as mudanças em lote, adia a posição de quem está dentro de um grupo visível e recalcula a cor do grupo.
 - `city-map.spec.ts`: deslocamento da telemetria sempre sobre as vias do bairro, inversão de sentido no fim do trecho e frota do teste de carga (determinística, séries únicas).
 - `prediction.service.spec.ts`: as 4 previsões (colapso viário com a fórmula do score, reforço de efetivo, falha em lote, onda de furtos), determinismo e efeito de "Aplicar recomendação" no estado.
 
@@ -106,6 +108,8 @@ Medição em Chrome headless com 2.072 equipamentos e 24 agentes, ao longo de 10
 | Tempo de script por ciclo | 216 ms | 39 ms |
 | Tempo de layout por ciclo | 17 ms | 6 ms |
 | Marcadores recriados no DOM por ciclo | 2.096 | 0 |
+
+Com o agrupamento, a mesma frota aparece como 85 ícones (58 grupos, 24 agentes e alguns itens isolados), e cada ciclo de telemetria leva cerca de 29 ms de script. Veículos dentro de um grupo visível só têm a posição aplicada no próximo zoom, porque reposicioná-los a cada ciclo forçava o redesenho dos grupos (111 ms por ciclo).
 
 ## Uso de IA no desenvolvimento
 

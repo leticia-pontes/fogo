@@ -41,6 +41,7 @@ import {
 } from '../../models/fogo.models';
 import { CityStateService, EMPTY_FILTERS, daysUntil } from '../../services/city-state.service';
 import { UiStateService } from '../../services/ui-state.service';
+import { MarkerSpec, MarkerSync, markerRank } from './marker-sync';
 
 const SELECT_CLASS =
   'w-full py-2 px-2.5 bg-fogo-bg border border-fogo-border focus:border-fogo-ember rounded-lg text-sm text-fogo-sand outline-none';
@@ -147,7 +148,7 @@ const SELECT_CLASS =
       <div class="grid grid-cols-1 xl:grid-cols-12 gap-4">
         <div class="xl:col-span-8 relative rounded-xl border border-fogo-border overflow-hidden h-[460px] xl:h-[580px]">
           <div #mapEl class="absolute inset-0 z-0"></div>
-          <div class="absolute bottom-3 left-3 z-[400] max-w-[calc(100%-1.5rem)] bg-fogo-panel/95 border border-fogo-border rounded-lg text-[12px] text-fogo-sand">
+          <div class="absolute bottom-3 left-3 z-[400] w-[400px] max-w-[calc(100%-1.5rem)] bg-fogo-panel/95 border border-fogo-border rounded-lg text-[12px] text-fogo-sand">
             <button
               type="button"
               (click)="legendOpen.set(!legendOpen())"
@@ -197,6 +198,12 @@ const SELECT_CLASS =
                     }
                   </div>
                 </div>
+                @if (clustering()) {
+                  <p class="flex items-center gap-1.5">
+                    <i class="legend-cluster">12</i>
+                    <span>Grupo de equipamentos: número = quantidade; borda = pior situação dentro do grupo. Clique ou aproxime para abrir.</span>
+                  </p>
+                }
                 <p class="text-fogo-muted">Cor do bairro = saúde operacional (verde, âmbar, vermelho)</p>
               </div>
             }
@@ -381,6 +388,7 @@ const SELECT_CLASS =
     .dot { @apply inline-block w-2.5 h-2.5 rounded-full shrink-0; }
     .legend-ring { @apply inline-block w-3 h-3 rounded-full shrink-0 border-2; }
     .legend-square { @apply inline-block w-3 h-3 rounded-[3px] shrink-0; }
+    .legend-cluster { @apply inline-flex items-center justify-center w-6 h-6 rounded-full shrink-0 border-2 border-fogo-red text-[10px] not-italic font-bold; }
     .detail-grid { @apply grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm; }
     .detail-grid dt { @apply text-fogo-muted; }
     .btn-secondary { @apply py-2 px-3 rounded-lg bg-fogo-bg border border-fogo-border text-sm hover:border-fogo-ember cursor-pointer; }
@@ -418,12 +426,14 @@ export class OpsCenterComponent implements AfterViewInit, OnDestroy {
 
   private L: typeof Leaflet | null = null;
   private map: Leaflet.Map | null = null;
-  private layer: Leaflet.LayerGroup | null = null;
   private districtLayer: Leaflet.LayerGroup | null = null;
   private cityBounds: Leaflet.LatLngBounds | null = null;
   private readonly mapReady = signal(false);
-  private readonly markers = new Map<string, { marker: Leaflet.Marker; iconKey: string; tooltip: string }>();
-  private readonly iconCache = new Map<string, Leaflet.DivIcon>();
+  /** Agentes e o item selecionado: sempre visíveis, fora dos grupos. */
+  private markers: MarkerSync | null = null;
+  /** Equipamentos agrupados quando a visão passa de CLUSTER_THRESHOLD itens. */
+  private clusterMarkers: MarkerSync | null = null;
+  readonly clustering = signal(false);
   private readonly districtPolygons = new Map<string, Leaflet.Polygon>();
 
   constructor() {
@@ -474,6 +484,9 @@ export class OpsCenterComponent implements AfterViewInit, OnDestroy {
     if (!isPlatformBrowser(this.platformId)) return;
     const module = await import('leaflet');
     this.L = (module.default ?? module) as typeof Leaflet;
+    // O plugin de agrupamento (formato UMD) estende o objeto `L` global.
+    (globalThis as { L?: typeof Leaflet }).L = this.L;
+    await import('leaflet.markercluster');
 
     const L = this.L;
     this.cityBounds = L.latLngBounds(CITY_MAP.outline);
@@ -489,14 +502,25 @@ export class OpsCenterComponent implements AfterViewInit, OnDestroy {
     this.drawBaseMap(L, this.map);
 
     this.districtLayer = L.layerGroup().addTo(this.map);
-    this.layer = L.layerGroup().addTo(this.map);
+    const clusterGroup = L.markerClusterGroup({
+      disableClusteringAtZoom: 16,
+      maxClusterRadius: 50,
+      showCoverageOnHover: false,
+      spiderfyOnMaxZoom: false,
+      chunkedLoading: true,
+      iconCreateFunction: clusterIcon(L),
+    }).addTo(this.map);
+    this.clusterMarkers = new MarkerSync(L, clusterGroup, { clustered: true });
+    this.map.on('zoomend', () => this.clusterMarkers?.flush());
+    this.markers = new MarkerSync(L, L.layerGroup().addTo(this.map));
     this.mapReady.set(true);
   }
 
   ngOnDestroy(): void {
     this.map?.remove();
     this.map = null;
-    this.markers.clear();
+    this.markers = null;
+    this.clusterMarkers = null;
     this.districtPolygons.clear();
   }
 
@@ -590,13 +614,10 @@ export class OpsCenterComponent implements AfterViewInit, OnDestroy {
     }
   }
 
-  /**
-   * Atualização incremental: cada marcador é criado uma vez e depois só move ou troca de ícone
-   * quando posição, situação ou seleção mudam. Ícones idênticos são compartilhados (cache).
-   */
+  /** Bairros e marcadores são atualizados de forma incremental (ver MarkerSync). */
   private render(equipment: Equipment[], agents: Agent[], regions: RegionSummary[], selectedId: string | null): void {
     const L = this.L;
-    if (!L || !this.layer || !this.districtLayer) return;
+    if (!L || !this.districtLayer) return;
 
     // Coroplético: um polígono fixo por bairro; só o estilo muda com a saúde operacional.
     const visibleHoods = new Set(regions.map((r) => r.neighborhood));
@@ -615,78 +636,82 @@ export class OpsCenterComponent implements AfterViewInit, OnDestroy {
       }
     }
 
-    const seen = new Set<string>();
+    const clustered = equipment.length > CLUSTER_THRESHOLD;
+    this.clustering.set(clustered);
+
+    const plain: MarkerSpec[] = [];
+    const grouped: MarkerSpec[] = [];
     for (const e of equipment) {
-      const key = `e:${e.id}`;
-      seen.add(key);
       const selected = e.id === selectedId;
-      this.syncMarker(L, key, e.location.lat, e.location.lng, `eq|${e.type}|${e.status}|${selected}`, selected ? 1000 : 0,
-        () => equipmentIcon(e.type, e.status, selected),
-        `${TYPE_LABELS[e.type]} · ${STATUS_LABELS[e.status]}`,
-        { kind: 'equipment', id: e.id });
+      (clustered && !selected ? grouped : plain).push({
+        key: `e:${e.id}`,
+        lat: e.location.lat,
+        lng: e.location.lng,
+        iconKey: `eq|${e.type}|${e.status}|${selected}`,
+        zIndex: selected ? 1000 : 0,
+        buildIcon: () => equipmentIcon(e.type, e.status, selected),
+        tooltip: `${TYPE_LABELS[e.type]} · ${STATUS_LABELS[e.status]}`,
+        onClick: () => this.city.selection.set({ kind: 'equipment', id: e.id }),
+        rank: STATUS_RANK[e.status],
+      });
     }
-
     for (const a of agents) {
-      const key = `a:${a.id}`;
-      seen.add(key);
       const selected = a.id === selectedId;
-      this.syncMarker(L, key, a.lat, a.lng, `ag|${a.role}|${a.status}|${selected}`, selected ? 1000 : 500,
-        () => agentIcon(a.role, a.status, selected),
-        `${escapeHtml(a.name)} · ${AGENT_STATUS_LABELS[a.status]}`,
-        { kind: 'agent', id: a.id });
+      plain.push({
+        key: `a:${a.id}`,
+        lat: a.lat,
+        lng: a.lng,
+        iconKey: `ag|${a.role}|${a.status}|${selected}`,
+        zIndex: selected ? 1000 : 500,
+        buildIcon: () => agentIcon(a.role, a.status, selected),
+        tooltip: `${escapeHtml(a.name)} · ${AGENT_STATUS_LABELS[a.status]}`,
+        onClick: () => this.city.selection.set({ kind: 'agent', id: a.id }),
+      });
     }
 
-    // Remove o que saiu do filtro ou foi excluído.
-    for (const [key, entry] of this.markers) {
-      if (seen.has(key)) continue;
-      this.layer.removeLayer(entry.marker);
-      this.markers.delete(key);
-    }
+    // Um item que entra ou sai de um grupo é removido de um sincronizador e criado no outro.
+    this.clusterMarkers?.sync(grouped);
+    this.markers?.sync(plain);
   }
+}
 
-  private syncMarker(
-    L: typeof Leaflet,
-    key: string,
-    lat: number,
-    lng: number,
-    iconKey: string,
-    zIndex: number,
-    buildIcon: () => { html: string; size: number },
-    tooltip: string,
-    target: { kind: 'equipment' | 'agent'; id: string }
-  ): void {
-    const icon = () => {
-      let cached = this.iconCache.get(iconKey);
-      if (!cached) {
-        const { html, size } = buildIcon();
-        cached = L.divIcon({ className: '', iconSize: [size, size], iconAnchor: [size / 2, size / 2], html });
-        this.iconCache.set(iconKey, cached);
-      }
-      return cached;
-    };
+/** Acima deste número de equipamentos visíveis, os próximos entre si são agrupados. */
+const CLUSTER_THRESHOLD = 300;
 
-    const entry = this.markers.get(key);
-    if (!entry) {
-      const marker = L.marker([lat, lng], { icon: icon(), zIndexOffset: zIndex })
-        .bindTooltip(tooltip, { direction: 'top' })
-        .on('click', () => this.city.selection.set(target))
-        .addTo(this.layer!);
-      this.markers.set(key, { marker, iconKey, tooltip });
-      return;
-    }
+/** Gravidade usada para colorir o grupo pela pior situação que ele contém. */
+const STATUS_RANK: Record<EquipmentStatus, number> = {
+  operational: 0,
+  not_installed: 1,
+  deactivated: 2,
+  maintenance: 3,
+  malfunction: 4,
+  stolen: 5,
+};
 
-    const pos = entry.marker.getLatLng();
-    if (pos.lat !== lat || pos.lng !== lng) entry.marker.setLatLng([lat, lng]);
-    if (entry.iconKey !== iconKey) {
-      entry.marker.setIcon(icon());
-      entry.marker.setZIndexOffset(zIndex);
-      entry.iconKey = iconKey;
+const STATUS_BY_RANK = Object.fromEntries(Object.entries(STATUS_RANK).map(([s, r]) => [r, s])) as Record<number, EquipmentStatus>;
+
+/** Ícone do grupo: quantidade de itens, borda na cor da pior situação e resumo no `title`. */
+function clusterIcon(L: typeof Leaflet) {
+  return (cluster: Leaflet.MarkerCluster): Leaflet.DivIcon => {
+    const counts = new Map<number, number>();
+    for (const m of cluster.getAllChildMarkers()) {
+      const rank = markerRank(m);
+      counts.set(rank, (counts.get(rank) ?? 0) + 1);
     }
-    if (entry.tooltip !== tooltip) {
-      entry.marker.setTooltipContent(tooltip);
-      entry.tooltip = tooltip;
-    }
-  }
+    const worst = STATUS_BY_RANK[Math.max(...counts.keys())];
+    const total = cluster.getChildCount();
+    const size = total < 10 ? 34 : total < 100 ? 40 : 46;
+    const summary = [...counts.entries()]
+      .sort((a, b) => b[0] - a[0])
+      .map(([rank, n]) => `${n} ${STATUS_LABELS[STATUS_BY_RANK[rank]].toLowerCase()}`)
+      .join(' · ');
+    return L.divIcon({
+      className: '',
+      iconSize: [size, size],
+      iconAnchor: [size / 2, size / 2],
+      html: `<div title="${total} equipamentos: ${summary}" style="width:${size}px;height:${size}px;border-radius:9999px;background:#101517;border:3px solid ${STATUS_COLORS[worst]};border-style:${statusBorder(worst)};color:#e9e4d8;font:700 12px/1 sans-serif;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 3px rgba(16,21,23,.6);">${total}</div>`,
+    });
+  };
 }
 
 function equipmentIcon(type: EquipmentType, status: EquipmentStatus, selected: boolean): { html: string; size: number } {
