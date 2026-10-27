@@ -85,7 +85,6 @@ npm run gerar-manuais   # reindexa manuais/*.md (roda sozinho antes de start, bu
   FOGO_URL_PUBLICA=http://192.168.0.10:3000 npm start
   ```
 - **Internet:** só para as fontes (Google Fonts), o Swagger UI (jsDelivr) e a transcrição do microfone, que é feita pelo próprio navegador (Google no Chrome, Microsoft no Edge). Todo o resto funciona offline.
-- **Windows com Node ≥ 25:** o `localStorage` nativo do Node encobre o do ambiente de teste; rode `NODE_OPTIONS=--no-experimental-webstorage npm test`.
 - **Pacote de entrega:** `git archive -o fogo.zip HEAD` (sem `node_modules`, `dist`, `.angular`, `.env` e banco).
 
 </details>

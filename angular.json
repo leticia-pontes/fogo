@@ -84,7 +84,8 @@
           "options": {
             "buildTarget": "fogo-nexus:build:development",
             "tsConfig": "tsconfig.spec.json",
-            "runner": "vitest"
+            "runner": "vitest",
+            "setupFiles": ["src/testing/setup.ts"]
           }
         }
       }
