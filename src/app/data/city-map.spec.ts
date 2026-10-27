@@ -1,4 +1,4 @@
-import { CITY_MAP, DISTRICTS, districtLanes, pointOnRoad, stepAlongRoad } from './city-map';
+import { CITY_MAP, DISTRICTS, distanciasPelasVias, districtLanes, pointOnRoad, stepAlongRoad, trajetoPelasVias } from './city-map';
 import { MAX_STRESS_EQUIPMENT, buildStressEquipment } from './mock-data';
 
 describe('vias e telemetria', () => {
@@ -64,5 +64,19 @@ describe('clique na via', () => {
 
   it('longe de qualquer via ou fora da cidade, não devolve ponto', () => {
     expect(pointOnRoad(-22.9, -47.1)).toBeNull();
+  });
+
+  it('trajeto pelas vias: fica sobre as ruas, liga os dois pontos e é simétrico', () => {
+    const [a, b] = [DISTRICTS[0], DISTRICTS[3]].map((d) => ({ lat: d.lat, lng: d.lng }));
+    const ida = trajetoPelasVias(a, b);
+    expect(ida.caminho[0]).toEqual([a.lat, a.lng]);
+    expect(ida.caminho.at(-1)).toEqual([b.lat, b.lng]);
+    // Do 2º ao penúltimo ponto, cada trecho corre sobre uma via (o 1º e o último ligam o ponto à rua).
+    for (let i = 2; i < ida.caminho.length - 1; i++) {
+      const [p, q] = [ida.caminho[i - 1], ida.caminho[i]];
+      expect(pointOnRoad((p[0] + q[0]) / 2, (p[1] + q[1]) / 2, 0.03)).not.toBeNull();
+    }
+    expect(trajetoPelasVias(b, a).km).toBeCloseTo(ida.km, 6);
+    expect(distanciasPelasVias(a, [b])[0]).toBeCloseTo(ida.km, 6);
   });
 });

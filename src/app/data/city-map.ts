@@ -251,10 +251,12 @@ interface RoadGeometry {
   name: string;
   kind: RoadKind;
   km: Km[];
+  /** Anel: a última amostra liga de volta à primeira. */
+  closed?: boolean;
 }
 
 const ROADS_KM: RoadGeometry[] = [
-  ...ROAD_SEEDS.map((r) => ({ name: r.name, kind: r.kind, km: smooth(r.points, r.closed) })),
+  ...ROAD_SEEDS.map((r) => ({ name: r.name, kind: r.kind, km: smooth(r.points, r.closed), closed: r.closed })),
   ...DISTRICT_SEEDS.flatMap((seed, i) =>
     districtStreets(seed, DISTRICT_POLYGONS_KM[i], i)
       .filter((r) => r.points.length >= 6)
@@ -484,4 +486,269 @@ export function stepAlongRoad(
   }
   const [nLat, nLng] = lane.points[next];
   return { lat: nLat, lng: nLng, street: lane.street, heading };
+}
+
+// -----------------------------------------------------------------------------
+// Rede viária: caminho pelas ruas entre dois pontos (rota de manutenção)
+// -----------------------------------------------------------------------------
+
+/** Pontas de rua a até esta distância de outra via são ligadas a ela (cruzamento em "T"). */
+const JUNCAO_T_KM = 0.15;
+
+interface SegmentoViario {
+  a: Km;
+  b: Km;
+  via: number;
+  /** Nós sobre o segmento (pontas e cruzamentos), ordenados pela posição t ∈ [0, 1]. */
+  cortes: { t: number; no: number }[];
+}
+
+interface RedeViaria {
+  nos: Km[];
+  adj: { para: number; km: number }[][];
+  segmentos: SegmentoViario[];
+}
+
+let REDE: RedeViaria | null = null;
+
+const distKm = (a: Km, b: Km) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+
+/**
+ * Grafo das vias (montado uma vez): vértices das polilinhas, cruzamentos entre vias diferentes e
+ * pontas de rua ligadas à via mais próxima. Trechos que ficarem isolados ganham uma ligação reta
+ * até o restante da rede, para toda parada ser alcançável.
+ */
+function redeViaria(): RedeViaria {
+  if (REDE) return REDE;
+  const nos: Km[] = [];
+  const indice = new Map<string, number>();
+  const no = (p: Km) => {
+    const chave = `${p[0].toFixed(5)},${p[1].toFixed(5)}`;
+    let id = indice.get(chave);
+    if (id === undefined) {
+      id = nos.push(p) - 1;
+      indice.set(chave, id);
+    }
+    return id;
+  };
+
+  const segmentos: SegmentoViario[] = [];
+  ROADS_KM.forEach((road, via) => {
+    const pts = road.closed ? [...road.km, road.km[0]] : road.km;
+    for (let i = 1; i < pts.length; i++) {
+      if (distKm(pts[i - 1], pts[i]) < 1e-9) continue;
+      segmentos.push({ a: pts[i - 1], b: pts[i], via, cortes: [{ t: 0, no: no(pts[i - 1]) }, { t: 1, no: no(pts[i]) }] });
+    }
+  });
+
+  // Cruzamentos entre segmentos de vias diferentes.
+  for (let i = 0; i < segmentos.length; i++) {
+    const s1 = segmentos[i];
+    for (let j = i + 1; j < segmentos.length; j++) {
+      const s2 = segmentos[j];
+      if (s1.via === s2.via) continue;
+      if (Math.max(s1.a[0], s1.b[0]) < Math.min(s2.a[0], s2.b[0]) || Math.max(s2.a[0], s2.b[0]) < Math.min(s1.a[0], s1.b[0])) continue;
+      if (Math.max(s1.a[1], s1.b[1]) < Math.min(s2.a[1], s2.b[1]) || Math.max(s2.a[1], s2.b[1]) < Math.min(s1.a[1], s1.b[1])) continue;
+      const r: Km = [s1.b[0] - s1.a[0], s1.b[1] - s1.a[1]];
+      const q: Km = [s2.b[0] - s2.a[0], s2.b[1] - s2.a[1]];
+      const den = r[0] * q[1] - r[1] * q[0];
+      if (Math.abs(den) < 1e-12) continue;
+      const w: Km = [s2.a[0] - s1.a[0], s2.a[1] - s1.a[1]];
+      const t = (w[0] * q[1] - w[1] * q[0]) / den;
+      const u = (w[0] * r[1] - w[1] * r[0]) / den;
+      if (t < 0 || t > 1 || u < 0 || u > 1) continue;
+      const id = no([s1.a[0] + t * r[0], s1.a[1] + t * r[1]]);
+      s1.cortes.push({ t, no: id });
+      s2.cortes.push({ t: u, no: id });
+    }
+  }
+
+  // Pontas de vias abertas perto de outra via: liga ao ponto mais próximo dela.
+  const extras: [number, number][] = [];
+  ROADS_KM.forEach((road, via) => {
+    if (road.closed) return;
+    for (const ponta of [road.km[0], road.km[road.km.length - 1]]) {
+      const alvo = projetarNaRede(segmentos, ponta, via);
+      if (alvo && alvo.d <= JUNCAO_T_KM && alvo.d > 1e-6) {
+        const id = no(alvo.p);
+        alvo.seg.cortes.push({ t: alvo.t, no: id });
+        extras.push([no(ponta), id]);
+      }
+    }
+  });
+
+  const adj: RedeViaria['adj'] = nos.map(() => []);
+  const ligar = (x: number, y: number) => {
+    if (x === y) return;
+    const km = distKm(nos[x], nos[y]);
+    adj[x].push({ para: y, km });
+    adj[y].push({ para: x, km });
+  };
+  for (const s of segmentos) {
+    s.cortes.sort((c1, c2) => c1.t - c2.t);
+    for (let k = 1; k < s.cortes.length; k++) ligar(s.cortes[k - 1].no, s.cortes[k].no);
+  }
+  for (const [x, y] of extras) ligar(x, y);
+
+  // Componentes isolados: ligação reta pelo par de nós mais próximo até o componente principal.
+  const comp = new Array<number>(nos.length).fill(-1);
+  const tamanhos: number[] = [];
+  for (let inicio = 0; inicio < nos.length; inicio++) {
+    if (comp[inicio] >= 0) continue;
+    const c = tamanhos.length;
+    let n = 0;
+    const pilha = [inicio];
+    comp[inicio] = c;
+    while (pilha.length) {
+      const v = pilha.pop()!;
+      n++;
+      for (const e of adj[v]) {
+        if (comp[e.para] < 0) {
+          comp[e.para] = c;
+          pilha.push(e.para);
+        }
+      }
+    }
+    tamanhos.push(n);
+  }
+  const principal = tamanhos.indexOf(Math.max(...tamanhos));
+  for (let c = 0; c < tamanhos.length; c++) {
+    if (c === principal) continue;
+    let melhor: [number, number, number] | null = null;
+    for (let x = 0; x < nos.length; x++) {
+      if (comp[x] !== c) continue;
+      for (let y = 0; y < nos.length; y++) {
+        if (comp[y] !== principal) continue;
+        const d = distKm(nos[x], nos[y]);
+        if (!melhor || d < melhor[2]) melhor = [x, y, d];
+      }
+    }
+    if (melhor) ligar(melhor[0], melhor[1]);
+  }
+
+  REDE = { nos, adj, segmentos };
+  return REDE;
+}
+
+/** Ponto da rede mais próximo de `q` (ignorando a via `exceto`). */
+function projetarNaRede(segmentos: SegmentoViario[], q: Km, exceto = -1) {
+  let melhor: { seg: SegmentoViario; t: number; p: Km; d: number } | null = null;
+  for (const seg of segmentos) {
+    if (seg.via === exceto) continue;
+    const r: Km = [seg.b[0] - seg.a[0], seg.b[1] - seg.a[1]];
+    const len2 = r[0] ** 2 + r[1] ** 2;
+    const t = Math.max(0, Math.min(1, ((q[0] - seg.a[0]) * r[0] + (q[1] - seg.a[1]) * r[1]) / len2));
+    const p: Km = [seg.a[0] + t * r[0], seg.a[1] + t * r[1]];
+    const d = distKm(p, q);
+    if (!melhor || d < melhor.d) melhor = { seg, t, p, d };
+  }
+  return melhor;
+}
+
+/** Encaixe de um ponto na rede: o ponto na via e os dois nós vizinhos do trecho onde ele cai. */
+interface Encaixe {
+  q: Km;
+  p: Km;
+  /** Distância do ponto original até a via (percorrida em linha reta). */
+  fora: number;
+  vizinhos: { no: number; km: number }[];
+  /** Identifica o trecho: dois pontos no mesmo trecho vão direto, sem passar pelos nós. */
+  trecho: string;
+}
+
+function encaixar(rede: RedeViaria, lat: number, lng: number): Encaixe {
+  const q: Km = [(lng - LNG0) * KM_PER_DEG_LNG, (lat - LAT0) * KM_PER_DEG_LAT];
+  const m = projetarNaRede(rede.segmentos, q)!;
+  const k = Math.max(1, m.seg.cortes.findIndex((c) => c.t >= m.t));
+  const [c1, c2] = [m.seg.cortes[k - 1], m.seg.cortes[k]];
+  return {
+    q,
+    p: m.p,
+    fora: m.d,
+    vizinhos: [c1, c2].map((c) => ({ no: c.no, km: distKm(m.p, rede.nos[c.no]) })),
+    trecho: `${c1.no}-${c2.no}`,
+  };
+}
+
+/** Dijkstra a partir de um ponto encaixado (fila de prioridade em heap binário). */
+function dijkstra(rede: RedeViaria, origem: Encaixe): { dist: Float64Array; ant: Int32Array } {
+  const n = rede.nos.length;
+  const dist = new Float64Array(n).fill(Infinity);
+  const ant = new Int32Array(n).fill(-1);
+  const heap: [number, number][] = [];
+  const push = (d: number, v: number) => {
+    heap.push([d, v]);
+    for (let i = heap.length - 1; i > 0; ) {
+      const pai = (i - 1) >> 1;
+      if (heap[pai][0] <= heap[i][0]) break;
+      [heap[pai], heap[i]] = [heap[i], heap[pai]];
+      i = pai;
+    }
+  };
+  const pop = (): [number, number] => {
+    const topo = heap[0];
+    const ultimo = heap.pop()!;
+    if (heap.length) {
+      heap[0] = ultimo;
+      for (let i = 0; ; ) {
+        const [l, r] = [2 * i + 1, 2 * i + 2];
+        let m = i;
+        if (l < heap.length && heap[l][0] < heap[m][0]) m = l;
+        if (r < heap.length && heap[r][0] < heap[m][0]) m = r;
+        if (m === i) break;
+        [heap[m], heap[i]] = [heap[i], heap[m]];
+        i = m;
+      }
+    }
+    return topo;
+  };
+  for (const v of origem.vizinhos) {
+    if (v.km < dist[v.no]) {
+      dist[v.no] = v.km;
+      push(v.km, v.no);
+    }
+  }
+  while (heap.length) {
+    const [d, v] = pop();
+    if (d > dist[v]) continue;
+    for (const e of rede.adj[v]) {
+      const nd = d + e.km;
+      if (nd < dist[e.para]) {
+        dist[e.para] = nd;
+        ant[e.para] = v;
+        push(nd, e.para);
+      }
+    }
+  }
+  return { dist, ant };
+}
+
+/** Distância pela rede entre dois encaixes e o nó de chegada usado (-1 quando estão no mesmo trecho). */
+function medir(a: Encaixe, b: Encaixe, d: ReturnType<typeof dijkstra>): { km: number; chegada: number } {
+  const pontas = a.fora + b.fora;
+  if (a.trecho === b.trecho) return { km: distKm(a.p, b.p) + pontas, chegada: -1 };
+  const [v1, v2] = b.vizinhos.map((v) => ({ no: v.no, km: d.dist[v.no] + v.km }));
+  const melhor = v1.km <= v2.km ? v1 : v2;
+  return { km: melhor.km + pontas, chegada: melhor.no };
+}
+
+/** Distâncias pelas vias (km) de um ponto até vários outros, com um único Dijkstra. */
+export function distanciasPelasVias(de: { lat: number; lng: number }, para: { lat: number; lng: number }[]): number[] {
+  const rede = redeViaria();
+  const a = encaixar(rede, de.lat, de.lng);
+  const d = dijkstra(rede, a);
+  return para.map((p) => medir(a, encaixar(rede, p.lat, p.lng), d).km);
+}
+
+/** Trajeto pelas vias entre dois pontos: distância (km) e a linha a desenhar no mapa. */
+export function trajetoPelasVias(de: { lat: number; lng: number }, para: { lat: number; lng: number }): { km: number; caminho: LatLng[] } {
+  const rede = redeViaria();
+  const a = encaixar(rede, de.lat, de.lng);
+  const b = encaixar(rede, para.lat, para.lng);
+  const d = dijkstra(rede, a);
+  const { km, chegada } = medir(a, b, d);
+  const meio: Km[] = [];
+  for (let v = chegada; v >= 0; v = d.ant[v]) meio.unshift(rede.nos[v]);
+  const pontos = [a.q, a.p, ...meio, b.p, b.q].filter((p, i, arr) => i === 0 || distKm(p, arr[i - 1]) > 1e-6);
+  return { km, caminho: pontos.map(toLatLng) };
 }

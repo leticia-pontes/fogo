@@ -810,8 +810,14 @@ export class OpsCenterComponent implements AfterViewInit, OnDestroy {
     if (!L || !this.routeLayer || !this.map) return;
     this.routeLayer.clearLayers();
     if (!route || !route.paradas.length) return;
-    const path: [number, number][] = [[route.origem.lat, route.origem.lng], ...route.paradas.map((p) => [p.lat, p.lng] as [number, number])];
-    L.polyline(path, { color: '#ff7a3d', weight: 3, opacity: 0.85, dashArray: '8 6', interactive: false }).addTo(this.routeLayer);
+    // Caminho pelas vias (trajeto); sem ele, retas entre as paradas.
+    const path: [number, number][] = route.trajeto?.length
+      ? route.trajeto
+      : [[route.origem.lat, route.origem.lng], ...route.paradas.map((p) => [p.lat, p.lng] as [number, number])];
+    L.polyline(path, { color: '#101517', weight: 8, opacity: 0.75, lineJoin: 'round', interactive: false }).addTo(this.routeLayer);
+    L.polyline(path, { color: '#ff7a3d', weight: 4, opacity: 0.95, lineJoin: 'round', interactive: false }).addTo(this.routeLayer);
+    // Tracejado animado por cima: mostra o sentido do percurso.
+    L.polyline(path, { color: '#fff4e6', weight: 2, opacity: 0.9, dashArray: '2 14', lineCap: 'round', className: 'route-flow', interactive: false }).addTo(this.routeLayer);
     L.marker([route.origem.lat, route.origem.lng], {
       icon: L.divIcon({ className: '', iconSize: [30, 30], iconAnchor: [15, 15], html: '<div style="width:30px;height:30px;border-radius:6px;background:#ff7a3d;color:#101517;font:700 13px/30px sans-serif;text-align:center;">B</div>' }),
       zIndexOffset: 2000,

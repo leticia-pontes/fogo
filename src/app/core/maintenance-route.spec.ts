@@ -1,5 +1,6 @@
 import { buildMockAgents, buildMockEquipment } from '../data/mock-data';
 import { makeEquipment } from '../../testing/fixtures';
+import { haversineM } from './coverage';
 import { MAINTENANCE_BASE, gerarRotaManutencao } from './maintenance-route';
 import { CityState } from './state';
 
@@ -57,5 +58,19 @@ describe('rota de manutenção', () => {
     const all = gerarRotaManutencao(state, { hoje: HOJE, limite: 50 });
     expect(all.paradas.some((p) => p.situacao === 'stolen')).toBe(false);
     expect(all.foraDaRota.some((f) => f.motivo.startsWith('Furtado'))).toBe(true);
+  });
+
+  it('segue as vias: o traçado vai da base à última parada e cada trecho é pelo menos a linha reta', () => {
+    const route = gerarRotaManutencao(seed(), { apenasCriticos: true });
+    expect(route.paradas.length).toBeGreaterThan(1);
+    const [primeiro, ultimo] = [route.trajeto[0], route.trajeto.at(-1)!];
+    expect(primeiro[0]).toBeCloseTo(MAINTENANCE_BASE.lat, 6);
+    expect(primeiro[1]).toBeCloseTo(MAINTENANCE_BASE.lng, 6);
+    expect(ultimo[0]).toBeCloseTo(route.paradas.at(-1)!.lat, 6);
+    let de = { lat: MAINTENANCE_BASE.lat, lng: MAINTENANCE_BASE.lng };
+    for (const p of route.paradas) {
+      expect(p.trechoKm + 0.05).toBeGreaterThanOrEqual(haversineM(de.lat, de.lng, p.lat, p.lng) / 1000);
+      de = p;
+    }
   });
 });

@@ -84,13 +84,14 @@ export class VoiceAgentService {
     });
   }
 
-  speak(text: string): void {
+  /** `rate`: velocidade da fala (1 = natural); textos longos, como o boletim, pedem mais. */
+  speak(text: string, rate = 1.2): void {
     if (!this.canSpeak) return;
     speechSynthesis.cancel();
     // "agente(s)" e "lotado(s)" ficam estranhos lidos em voz alta.
     const utterance = new SpeechSynthesisUtterance(text.replace(/\(s\)/g, 's'));
     utterance.lang = 'pt-BR';
-    utterance.rate = 1.05;
+    utterance.rate = rate;
     utterance.pitch = 0.9;
     const voice = speechSynthesis.getVoices().find((v) => v.lang.toLowerCase().startsWith('pt-br'));
     if (voice) utterance.voice = voice;

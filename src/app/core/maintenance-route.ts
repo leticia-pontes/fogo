@@ -1,8 +1,7 @@
-import { CITY_CENTER } from '../data/city-map';
+import { CITY_CENTER, distanciasPelasVias, trajetoPelasVias } from '../data/city-map';
 import { daysFromToday } from '../data/mock-data';
 import { STATUS_LABELS, TYPE_LABELS } from '../models/equipment-schema';
 import { Equipment, EquipmentStatus, EquipmentType } from '../models/fogo.models';
-import { haversineM } from './coverage';
 import { UPCOMING_MAINTENANCE_DAYS, daysUntil } from './indicators';
 import { CityState } from './state';
 
@@ -15,7 +14,8 @@ import { CityState } from './state';
  *
  * Regra extra: enquanto houver imediata pendente, só imediatas são elegíveis. Assim um item
  * crítico nunca fica para o fim só por estar longe; entre as imediatas (e depois entre vencidas
- * e próximas) vale o vizinho mais próximo ponderado. Distâncias em linha reta (haversine).
+ * e próximas) vale o vizinho mais próximo ponderado. Distâncias pelas vias (caminho mais curto na
+ * rede viária, `distanciasPelasVias`), e o traçado sai em `trajeto` para o mapa.
  */
 export type Criticidade = 'imediata' | 'vencida' | 'proxima';
 
@@ -65,6 +65,8 @@ export interface MaintenanceRoute {
   tempoEstimadoMin: number;
   velocidadeKmh: number;
   minutosPorParada: number;
+  /** Caminho pelas vias da base até a última parada ([lat, lng]), para desenhar no mapa. */
+  trajeto: [number, number][];
   /** Itens que pediam atenção mas ficaram de fora (limite, furtados…). */
   foraDaRota: { numeroSerie: string; motivo: string }[];
   observacao: string;
@@ -111,10 +113,8 @@ export function gerarRotaManutencao(state: CityState, opts: RouteOptions = {}): 
   let total = 0;
   const remaining = [...pending];
   while (remaining.length && paradas.length < limite) {
-    const all = remaining.map((r) => {
-      const km = haversineM(here.lat, here.lng, r.e.location.lat, r.e.location.lng) / 1000;
-      return { r, km, cost: km / ROUTE_WEIGHTS[r.criticidade] };
-    });
+    const kms = distanciasPelasVias(here, remaining.map((r) => r.e.location));
+    const all = remaining.map((r, i) => ({ r, km: kms[i], cost: kms[i] / ROUTE_WEIGHTS[r.criticidade] }));
     const urgentLeft = all.some((x) => x.r.criticidade === 'imediata');
     const scored = all
       .filter((x) => !urgentLeft || x.r.criticidade === 'imediata')
@@ -153,15 +153,23 @@ export function gerarRotaManutencao(state: CityState, opts: RouteOptions = {}): 
   for (const r of remaining) foraDaRota.push({ numeroSerie: r.e.serialNumber, motivo: `Além do limite de ${limite} paradas (${r.criticidade})` });
 
   const distanciaTotalKm = round1(total);
+  const trajeto: [number, number][] = [];
+  let de = { lat: origem.lat, lng: origem.lng };
+  for (const p of paradas) {
+    const { caminho } = trajetoPelasVias(de, p);
+    trajeto.push(...(trajeto.length ? caminho.slice(1) : caminho));
+    de = p;
+  }
   return {
     origem,
     paradas,
+    trajeto,
     distanciaTotalKm,
     tempoEstimadoMin: Math.round((distanciaTotalKm / velocidadeKmh) * 60 + paradas.length * minutosPorParada),
     velocidadeKmh,
     minutosPorParada,
     foraDaRota,
-    observacao: `Estimativa: distância em linha reta entre as paradas, ${velocidadeKmh} km/h de média e ${minutosPorParada} min por atendimento. O trajeto real pelas vias é mais longo.`,
+    observacao: `Estimativa: caminho mais curto pelas vias do mapa, ${velocidadeKmh} km/h de média e ${minutosPorParada} min por atendimento (sem trânsito, semáforos nem mão de direção).`,
   };
 }
 

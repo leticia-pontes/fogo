@@ -90,6 +90,11 @@ dialog::backdrop {
   white-space: nowrap;
 }
 
+/* Rota de manutenção: tracejado que corre no sentido do percurso. */
+.route-flow { animation: route-flow 1.2s linear infinite; }
+@keyframes route-flow { to { stroke-dashoffset: -16; } }
+@media (prefers-reduced-motion: reduce) { .route-flow { animation: none; } }
+
 /* Comprovante de ocorrência: ao imprimir, o modal copia o cupom para .comprovante-print-root (filho direto do body)
    e só ele aparece, numa página, com o papel creme preservado e os recortes brancos. */
 .comprovante-print-root { display: none; }

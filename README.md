@@ -32,7 +32,7 @@ O F.O.G.O. é a central de operações de **Nova Prometeia**, uma cidade fictíc
 npm install
 npm start          # API (porta 3000) + painel em http://localhost:4200
 npm run reset      # volta ao cenário inicial (apaga e recria o banco)
-npm test           # 157 testes: regras, painel e API
+npm test           # 159 testes: regras, painel e API
 ```
 
 | Endereço | O que é |
@@ -54,7 +54,6 @@ npm run gerar-manuais   # reindexa manuais/*.md (roda sozinho antes de start, bu
 
 - **Variáveis opcionais:** `PORT` (padrão 3000), `FOGO_DB` (caminho do banco) e `FOGO_URL_PUBLICA` (endereço da API visto pelo celular no QR Code, veja [Comprovante](#comprovante-e-qr-code)).
 - **Internet:** só para as fontes (Google Fonts), o Swagger UI (jsDelivr) e a transcrição do microfone, que é feita pelo próprio navegador (Google no Chrome, Microsoft no Edge). Todo o resto funciona offline.
-- **`.env` antigo:** se existir um `.env` com chave do Gemini, ele é herança das primeiras versões. Nada o lê hoje; ele está no `.gitignore` e pode ser apagado.
 - **Windows com Node ≥ 25:** o `localStorage` nativo do Node encobre o do ambiente de teste; rode `NODE_OPTIONS=--no-experimental-webstorage npm test`.
 - **Pacote de entrega:** `git archive -o fogo.zip HEAD` (sem `node_modules`, `dist`, `.angular`, `.env` e banco).
 
@@ -71,7 +70,7 @@ O desafio faz quatro perguntas à PROMETHEUS, e o sistema foi organizado para re
                                      custa?"         registrado?"
 ```
 
-Toda funcionalidade é um elo dessa corrente. Se uma ideia não ajudava o gestor a perceber, antecipar, decidir ou resolver, ela ficou de fora.
+Toda funcionalidade é um elo dessa corrente: cada uma ajuda o gestor a perceber, antecipar, decidir ou resolver.
 
 ## Funcionalidades e por que cada uma existe
 
@@ -112,7 +111,7 @@ Elas também **não são ilhas**. Todas usam o mesmo núcleo de regras (`src/app
 | Funcionalidade | Por que é necessária |
 | --- | --- |
 | **Simulador "e se…?" + próxima melhor ação** | A Parte 3 pede *"recomendações para apoiar a tomada de decisão"*. O gestor vê o **antes × depois** de uma decisão **antes** de tomá-la, e o sistema ranqueia as 3 ações de maior ganho, com justificativa e confiança. Simular nunca grava nada. |
-| **Rota de manutenção** | Destacar 10 alertas não diz à equipe técnica por onde começar. A rota ordena as paradas (críticas primeiro, depois as mais próximas) e cada parada concluída atualiza a cidade inteira. |
+| **Rota de manutenção** | Destacar 10 alertas não diz à equipe técnica por onde começar. A rota ordena as paradas (críticas primeiro, depois as mais próximas), desenha no mapa o percurso **pelas ruas** e cada parada concluída atualiza a cidade inteira. |
 
 ### 5. Resolver: foi feito e está registrado?
 
@@ -138,18 +137,18 @@ alerta ──▶ abrir ──▶ investigar ──▶ despachar ──▶ encerr
 | **Swagger em `/api/docs`** | O FAQ aceita *"apenas uma API"* como entrega. Quem avalia testa tudo pelo navegador, sem Postman. |
 | **Cadastro clicando no mapa** | A Parte 1 pede coordenadas GPS, e digitar latitude à mão é o jeito mais fácil de errar. Clicar numa rua preenche via, bairro, CEP e coordenadas encaixadas no eixo da via. |
 | **Modo offline** | Se a API não subir (ou no deploy estático), o painel não vira uma tela branca: as mesmas regras rodam no navegador. |
-| **Desempenho com frota grande** | Uma cidade real tem milhares de dispositivos. O mapa atualiza só o que mudou e agrupa marcadores: com 2.000 equipamentos, o ciclo caiu de 216 ms para 39 ms. |
+| **Desempenho com frota grande** | Uma cidade real tem milhares de dispositivos. O mapa atualiza só o que mudou e agrupa marcadores: com 2.000 equipamentos, cada ciclo de telemetria leva cerca de 39 ms de script, contra 216 ms de um redesenho completo. |
 | **Missão guiada de 3 passos** | Há muita coisa para descobrir; em três passos, quem nunca viu o sistema encontra cada parte. Quem já conhece pula. |
-| **157 testes automatizados** | O desafio pede para *"demonstrar entendimento daquilo que a IA construiu"*. As fórmulas não dependem de confiança: dependem de teste. |
+| **159 testes automatizados** | O desafio pede para *"demonstrar entendimento daquilo que a IA construiu"*. As fórmulas não dependem de confiança: dependem de teste. |
 
 ## Por que não IA generativa, RAG ou modelo treinado
 
-A pergunta é justa: o tema é uma "inteligência" urbana, e seria natural plugar um LLM, montar um RAG com os manuais ou treinar um modelo de previsão. Escolhemos **regras explicáveis e determinísticas**, e não por falta de tempo:
+A pergunta é justa: o tema é uma "inteligência" urbana, e seria natural plugar um LLM, montar um RAG com os manuais ou treinar um modelo de previsão. Foram escolhidas **regras explicáveis e determinísticas**:
 
 1. **Decisão pública precisa ser auditável.** Quando o sistema recomenda tirar um guarda de um bairro, alguém responde por isso. Cada número do F.O.G.O. vem de uma fórmula escrita neste README, cada recomendação cita o manual que a sustenta e a mesma entrada gera sempre a mesma saída. Um LLM pode dar respostas diferentes para a mesma pergunta e não consegue mostrar de onde tirou um número.
-2. **Não existem dados reais para treinar.** Um modelo de ML treinado nos nossos dados sintéticos aprenderia apenas as regras que nós mesmos usamos para gerá-los: seria um caminho mais caro e menos transparente para chegar à mesma heurística. O correto é começar com regras e trocar por modelos quando houver meses de telemetria real.
+2. **Não existem dados reais para treinar.** Um modelo de ML treinado com os dados sintéticos do projeto aprenderia apenas as regras usadas para gerá-los: seria um caminho mais caro e menos transparente para chegar à mesma heurística. O correto é começar com regras e trocar por modelos quando houver meses de telemetria real.
 3. **RAG para 41 trechos de manual é desproporcional.** A busca por palavras-chave (BM25) resolve bem uma base desse tamanho, sem servidor de embeddings nem banco vetorial. E a arquitetura já é a de um RAG: a etapa de **recuperação** existe (`recuperarTrechos`) e as fontes já são citadas. Só a **geração** é feita por regras em vez de um LLM, e trocá-la é uma mudança localizada (`decidirComManual`).
-4. **Números inventados no meio de uma crise são inaceitáveis.** O boletim e o relatório usam templates preenchidos com os números reais. As primeiras versões chamavam o Gemini para o briefing; trocamos por templates para não depender de chave nem de rede e não arriscar números diferentes no meio da operação.
+4. **Números inventados no meio de uma crise são inaceitáveis.** O boletim e o relatório usam templates preenchidos com os números reais. Assim, o texto não depende de chave nem de rede, e o mesmo estado gera sempre o mesmo texto.
 5. **Roda em qualquer máquina, de primeira.** Sem chave de API, sem custo por chamada, sem GPU, sem rede, e os dados da cidade não saem do computador. O FAQ do desafio lembra que o projeto que *"roda de primeira"* é avaliado com *"um sorriso no rosto"*.
 
 O próprio enunciado avisa que *"não será sobre quem usou mais tecnologia, mais IA ou mais linhas de código"*. O valor está em transformar dados em decisão, e isso as regras fazem com explicação completa.
@@ -165,8 +164,8 @@ Partindo de um banco limpo: `npm run reset` e depois `npm start`. Os números ab
 | 1 | Abra `http://localhost:4200` e clique em **Pular Calibração / Modo Livre** | Cabeçalho **Banco conectado**; disponibilidade **67,9%**; 11 alertas; Orla do Rio e Entroncamento com risco **ALTO** |
 | 2 | Leia o **Boletim da PROMETHEUS** (abaixo dos KPIs) e clique em **Ouvir** | Resumo do que exige atenção, lido em voz alta |
 | 3 | **Simular Cenários → Falha de Energia (Entroncamento)** | Faixa vermelha de cenário ativo; disponibilidade **67,9% → 57,1%**; saúde do Entroncamento **53 → 10**; alertas críticos **5 → 8** |
-| 4 | Aba **Simulador · ações** → **Simular esta** na 1ª sugestão | 1ª sugestão: **rota de manutenção com 6 paradas críticas (~6,2 km, ~135 min)**. Antes × depois na tela; **nada é gravado** |
-| 5 | Aba **Rota de manutenção → Gerar rota** e **Concluir** uma parada | Linha numerada no mapa; disponibilidade, saúde e boletim melhoram na hora |
+| 4 | Aba **Simulador · ações** → **Simular esta** na 1ª sugestão | 1ª sugestão: **rota de manutenção com 6 paradas críticas (~7,2 km, ~137 min)**. Antes × depois na tela; **nada é gravado** |
+| 5 | Aba **Rota de manutenção → Gerar rota** e **Concluir** uma parada | O percurso aparece no mapa **pelas ruas**, da base às paradas numeradas; disponibilidade, saúde e boletim melhoram na hora |
 | 6 | **Cidade Preditiva** | Cada previsão mostra o que prevê, os dados usados e **Aplicar recomendação** |
 | 7 | Volte à Central, **Reverter cenário** e aplique **Onda de Furto e Vandalismo** | Câmeras `CAM-902-0017` e `CAM-902-0018` furtadas no Entroncamento |
 | 8 | Aba **Alertas → Abrir ocorrência** no furto de `CAM-902-0017` → **Investigar** | Padrão **ocorrências na vizinhança** (a outra câmera); hipótese **ação coordenada de furto**; decisão **acionar Guarda e PM**, citando `procedimento-furto.md` |
@@ -255,8 +254,9 @@ A cidade é dividida em células de **250 m**. Uma célula está coberta se o ce
 <summary><b>Rota de manutenção</b></summary>
 
 1. **Seleção:** imediata (falha ou manutenção imediata), vencida e próxima (até 7 dias). Furtados ficam fora: pedem reposição, não manutenção.
-2. **Ordem:** a partir da base, a parada de menor **distância ÷ peso** (imediata 6, vencida 2,5, próxima 1). Enquanto houver imediata pendente, só imediatas são elegíveis.
-3. **Estimativa:** distância em linha reta; tempo = distância ÷ 25 km/h + 20 min por parada.
+2. **Distâncias pelas vias:** as ruas do mapa formam um grafo (vértices das vias e cruzamentos), e a distância entre dois pontos é o caminho mais curto nele (Dijkstra). Esse caminho é o traçado desenhado no mapa.
+3. **Ordem:** a partir da base, a parada de menor **distância ÷ peso** (imediata 6, vencida 2,5, próxima 1). Enquanto houver imediata pendente, só imediatas são elegíveis.
+4. **Estimativa:** tempo = distância pelas vias ÷ 25 km/h + 20 min por parada (sem trânsito, semáforos nem mão de direção).
 
 </details>
 
@@ -408,12 +408,12 @@ Sem microfone, sem internet ou noutro navegador, **digite** a pergunta: a respos
 
 ## Testes
 
-`npm test` roda **157 testes** (Vitest): 133 das regras e do painel e 24 da API com o banco.
+`npm test` roda **159 testes** (Vitest): 135 das regras e do painel e 24 da API com o banco.
 
 | Área | O que é garantido |
 | --- | --- |
 | Simulador e recomendações | Simular não altera o estado; desativar nunca melhora indicadores; recomendações ordenadas por ganho e a 1ª realmente melhora a cidade |
-| Cobertura e rota | Raios respeitados; críticos sempre antes; distância total = soma dos trechos |
+| Cobertura e rota | Raios respeitados; críticos sempre antes; distância total = soma dos trechos; o percurso fica sobre as ruas e nunca é menor que a linha reta |
 | Cenários | Reverter devolve exatamente o estado anterior e preserva o que foi criado depois |
 | Ocorrências | Abrir é idempotente; cada padrão dispara no cenário certo e não no oposto; cada regra cita fonte; o agente volta exatamente à origem |
 | Relatório, boletim e comprovante | Citam os números corretos, são determinísticos e nunca mostram "undefined" ou "NaN" |
@@ -421,13 +421,13 @@ Sem microfone, sem internet ou noutro navegador, **digite** a pergunta: a respos
 | API e banco | Persistência entre reinícios, validação (400), id repetido (409), auditoria, e **toda rota documentada no OpenAPI** |
 | Painel | KPIs, filtros, alertas, previsões, mapa incremental e o modal do comprovante (cópia, QR e tecla ESC) |
 
-**Teste de carga:** abra `http://localhost:4200/?stress=2000` (máximo 5000) para somar uma frota sintética só em memória. Com 2.072 equipamentos, a atualização incremental do mapa levou o ciclo de telemetria de 216 ms para 39 ms de script, sem recriar nenhum marcador.
+**Teste de carga:** abra `http://localhost:4200/?stress=2000` (máximo 5000) para somar uma frota sintética só em memória. Com 2.072 equipamentos, a atualização incremental do mapa leva cerca de 39 ms de script por ciclo de telemetria, sem recriar nenhum marcador (um redesenho completo levaria 216 ms).
 
 ## Suposições e limitações
 
-- **Cidade fictícia.** O desafio pedia bairros reais; mantivemos **Nova Prometeia** porque o mapa é desenhado em vetor, sem servidor de mapas, e todos os pontos ficam sobre as vias desenhadas. CEPs seguem o formato brasileiro, mas nenhum endereço é real.
+- **Cidade fictícia.** O desafio pedia bairros reais; foi mantida a cidade fictícia **Nova Prometeia** porque o mapa é desenhado em vetor, sem servidor de mapas, e todos os pontos ficam sobre as vias desenhadas. CEPs seguem o formato brasileiro, mas nenhum endereço é real.
 - **Números são estimativas por regras**, com fórmulas documentadas acima e pesos não calibrados com dados reais. O histórico de fluxo por bairro é simulado.
-- **Distâncias** (rota, ETA) são em linha reta; o trajeto real pelas vias é mais longo, e a tela diz isso.
+- **Distâncias:** a rota de manutenção usa o caminho pelas vias do mapa, sem trânsito, semáforos nem mão de direção; o ETA do despacho usa linha reta, e a tela diz isso.
 - **Manuais são fictícios**, escritos para a demonstração; a busca entende sinônimos só na medida em que os manuais usam as mesmas palavras.
 - **Seed:** as datas de manutenção são relativas ao dia do reset ("vence amanhã"); mesma seed no mesmo dia, mesmo resultado.
 - **Sem autenticação:** a auditoria registra o autor pelo cabeçalho `x-usuario` (o painel envia "gestor (painel)").
