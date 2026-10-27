@@ -622,10 +622,12 @@ export class OpsCenterComponent implements AfterViewInit, OnDestroy {
       }
     });
 
-    // Pedidos de foco vindos da missão de calibração, dos cenários e da voz.
+    // Pedidos de foco vindos da missão de calibração, dos cenários e da voz. Cada pedido é consumido:
+    // a Central é recriada ao voltar de outra aba, e um foco antigo não pode levar o mapa para outro lugar.
     effect(() => {
       const focus = this.ui.mapFocus();
       if (!this.mapReady() || !this.map || !focus) return;
+      untracked(() => this.ui.mapFocus.set(null));
       if (focus.kind === 'point') {
         this.map.flyTo([focus.lat, focus.lng], 16, { duration: 0.8 });
       } else {

@@ -1,4 +1,4 @@
-import { Component, inject } from '@angular/core';
+import { Component, computed, inject } from '@angular/core';
 import { EMPTY_FILTERS, CityStateService } from '../../services/city-state.service';
 import { Prediction, PredictionKind, PredictionService } from '../../services/prediction.service';
 import { UiStateService } from '../../services/ui-state.service';
@@ -37,7 +37,7 @@ const KIND_LABELS: Record<PredictionKind, string> = {
       </section>
 
       <div class="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-4">
-        @for (p of predictions.predictions(); track p.id) {
+        @for (p of ordered(); track p.id) {
           @let applied = predictions.isApplied(p);
           <article
             class="bg-fogo-panel border rounded-xl p-4 flex flex-col gap-3"
@@ -79,16 +79,23 @@ const KIND_LABELS: Record<PredictionKind, string> = {
               <p class="text-sm">{{ p.recommendation }}</p>
             </section>
 
+            @if (applied) {
+              <p class="text-xs text-fogo-muted">{{ pendencia(p) }}</p>
+            }
+
             <footer class="mt-auto flex gap-2">
               @if (applied) {
                 <span class="flex-1 py-2 rounded-lg bg-fogo-green/15 border border-fogo-green/40 text-fogo-green text-sm text-center font-medium">
                   ✓ Recomendação aplicada
                 </span>
+              } @else if (!p.actions.length) {
+                <span class="flex-1 py-2 rounded-lg bg-fogo-bg border border-fogo-border text-fogo-muted text-sm text-center">
+                  Sem ação automática: depende da escala
+                </span>
               } @else {
                 <button
                   type="button"
                   (click)="predictions.apply(p)"
-                  [disabled]="p.actions.length === 0"
                   class="flex-1 py-2 rounded-lg bg-fogo-ember hover:brightness-110 text-fogo-bg text-sm font-semibold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   Aplicar recomendação
@@ -153,6 +160,27 @@ export class PredictiveEngineComponent {
   readonly predictions = inject(PredictionService);
   readonly kindLabels = KIND_LABELS;
 
+  /** Pendentes primeiro (por risco); as já aplicadas vão para o fim, enquanto o efeito não chega. */
+  readonly ordered = computed(() => {
+    const list = this.predictions.predictions();
+    return [...list].sort((a, b) => Number(this.predictions.isApplied(a)) - Number(this.predictions.isApplied(b)));
+  });
+
+  /**
+   * O que ainda falta numa previsão já aplicada. Abrir OS não conserta na hora: o equipamento fica
+   * "em manutenção" (indisponível) até a equipe concluir, e só então a previsão baixa ou some.
+   */
+  pendencia(p: Prediction): string {
+    const ids = new Set(p.actions.flatMap((a) => (a.kind === 'maintenance' ? a.equipmentIds : [])));
+    const fora = this.city.equipment().filter((e) => ids.has(e.id) && e.status !== 'operational' && e.maintenance.priority === 'immediate');
+    if (fora.length) {
+      return `Equipe técnica acionada: ${fora.length} equipamento(s) ainda fora de operação (${fora
+        .map((e) => e.serialNumber)
+        .join(', ')}). O risco baixa quando a manutenção for concluída: Central → Rota de manutenção → Concluir, ou mudando a situação para Operacional.`;
+    }
+    return 'Ações executadas. O risco que resta vem de fatores fora do alcance desta recomendação (fluxo no pico, efetivo do bairro).';
+  }
+
   riskClass(score: number): string {
     return score >= 75 ? 'text-fogo-red' : score >= 50 ? 'text-fogo-amber' : 'text-fogo-green';
   }
@@ -161,14 +189,23 @@ export class PredictiveEngineComponent {
     return score >= 75 ? 'bg-fogo-red' : score >= 50 ? 'bg-fogo-amber' : 'bg-fogo-green';
   }
 
+  /**
+   * Leva ao mapa já focado no alvo. O foco é um pedido explícito (substitui qualquer outro pendente),
+   * porque a Central é recriada ao voltar e reaplica filtros e seleção antes de o mapa ficar pronto.
+   */
   showOnMap(p: Prediction): void {
     if (p.neighborhood) {
       this.city.selection.set(null);
       this.city.filters.set({ ...EMPTY_FILTERS, neighborhood: p.neighborhood });
+      this.ui.focusDistrict(p.neighborhood);
     } else {
       const firstId = p.actions.find((a) => a.kind === 'maintenance')?.equipmentIds[0];
+      const eq = this.city.equipment().find((e) => e.id === firstId);
       this.city.filters.set(EMPTY_FILTERS);
-      if (firstId) this.city.selection.set({ kind: 'equipment', id: firstId });
+      if (eq) {
+        this.city.selection.set({ kind: 'equipment', id: eq.id });
+        this.ui.focusPoint(eq.location.lat, eq.location.lng);
+      }
     }
     this.ui.goToMap();
   }
